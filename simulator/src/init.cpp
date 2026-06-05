@@ -54,6 +54,7 @@
 #include "log.h"
 #include "mem_ctrls.h"
 #include "network.h"
+#include "cacheline_network.h"
 #include "fixed_delay_network.h"
 #include "mesh_network_md1.h"
 #include "null_core.h"
@@ -472,6 +473,16 @@ static void InitSystem(Config& config) {
     }
     else if(networkType == "mesh") {
         network = new MeshNetworkMD1(networkFile.c_str());
+        network->initStats(zinfo->rootStat);
+    }
+    else if(networkType == "cacheline") {
+        uint32_t cacheLineBytes  = config.get<uint32_t>("sys.network.cacheLineBytes",  64);
+        uint32_t chunkBytes      = config.get<uint32_t>("sys.network.chunkBytes",       16);
+        uint32_t headerBytes     = config.get<uint32_t>("sys.network.headerBytes",       8);
+        uint32_t linkBandwidth   = config.get<uint32_t>("sys.network.linkBandwidth",    16);
+        uint32_t baseHopDelay    = config.get<uint32_t>("sys.network.baseHopDelay",      3);
+        network = new CachelineNetwork(cacheLineBytes, chunkBytes, headerBytes,
+                                       linkBandwidth, baseHopDelay);
         network->initStats(zinfo->rootStat);
     }
 

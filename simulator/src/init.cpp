@@ -947,6 +947,22 @@ void SimInit(const char* configFile, const char* outputDir, uint32_t shmid) {
     zinfo->pim_mode = config.get<bool>("sim.pimMode", false);
     //zinfo->network_overhead = config.get<bool>("sim.networkOverhead", false);
 
+    // ---- Sparsity-aware NDP for FL (Day 1) ----
+    // These are safe no-ops when disabled: existing configs and the ISVLSI
+    // baseline continue to run identically because sparsityEnabled defaults
+    // to false.
+    zinfo->sparsityEnabled     = config.get<bool>   ("sim.sparsity.enabled",      false);
+    zinfo->deltaEnabled        = config.get<bool>   ("sim.sparsity.deltaEnabled", false);
+    zinfo->sparsityThreshold   = (float)config.get<double>("sim.sparsity.threshold",    0.001);
+    zinfo->sparsityMinRegionKB = config.get<uint32_t>("sim.sparsity.minRegionKB",  1024);
+    zinfo->currentRoundIdx     = 0;
+    if (zinfo->sparsityEnabled) {
+        info("[sparsity] Enabled: threshold=%g, minRegionKB=%u, delta=%s",
+             zinfo->sparsityThreshold,
+             zinfo->sparsityMinRegionKB,
+             zinfo->deltaEnabled ? "on" : "off");
+    }
+
     uint64_t maxSimTime = config.get<uint32_t>("sim.maxSimTime", 0);
     zinfo->maxSimTimeNs = maxSimTime*1000L*1000L*1000L;
 

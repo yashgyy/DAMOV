@@ -196,6 +196,13 @@ struct GlobSimInfo {
 
     uint64_t totalInstrs=0;
     bool offload = false;
+
+    // ---- Sparsity-aware NDP for FL (Day 1 additions) ----
+    bool sparsityEnabled = false;         // master on/off for all sparsity logic
+    bool deltaEnabled = false;            // cross-round delta encoding on/off
+    float sparsityThreshold = 0.001f;     // ε; |v| < ε treated as 0
+    uint32_t sparsityMinRegionKB = 1024;  // mmap allocations below this are ignored
+    uint32_t currentRoundIdx = 0;         // round counter, incremented on ROI_END
 };
 
 

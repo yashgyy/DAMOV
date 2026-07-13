@@ -27,6 +27,7 @@
 /* The Pin-facing part of the simulator */
 
 #include "zsim.h"
+#include "sparse_region.h"
 #include <algorithm>
 //#include <bits/signum.h>
 #include <signal.h>
@@ -853,6 +854,12 @@ VOID VdsoInstrument(INS ins) {
 bool activeThreads[MAX_THREADS];  // set in ThreadStart, reset in ThreadFini, we need this for exec() (see FollowChild)
 bool inSyscall[MAX_THREADS];  // set in SyscallEnter, reset in SyscallExit, regardless of state. We MAY need this for ContextChange
 
+// ---- Sparsity-aware NDP for FL (Day 1) ----
+// SyscallExit needs to know what syscall we're exiting from and the args
+// it was called with. Save them per-thread in SyscallEnter.
+static uint64_t savedSyscallNum[MAX_THREADS];
+static uint64_t savedSyscallArg1[MAX_THREADS];
+
 uint32_t CountActiveThreads() {
     // Finish all threads in this process w.r.t. the global scheduler
     uint32_t activeCount = 0;
@@ -934,6 +941,12 @@ VOID ThreadFini(THREADID tid, const CONTEXT *ctxt, INT32 flags, VOID *v) {
 
 //Need to remove ourselves from running threads in case the syscall is blocking
 VOID SyscallEnter(THREADID tid, CONTEXT *ctxt, SYSCALL_STANDARD std, VOID *v) {
+    // Save the syscall number and its size-argument (arg1) so SyscallExit can
+    // inspect them without racing against register overwrites by the kernel.
+    // Used by the mmap hook in SyscallExit for sparse-region registration.
+    savedSyscallNum[tid]  = PIN_GetSyscallNumber(ctxt, std);
+    savedSyscallArg1[tid] = PIN_GetSyscallArgument(ctxt, std, 1);
+
     bool isNopThread = fPtrs[tid].type == FPTR_NOP;
     bool isRetryThread = fPtrs[tid].type == FPTR_RETRY;
 
@@ -968,6 +981,24 @@ VOID SyscallEnter(THREADID tid, CONTEXT *ctxt, SYSCALL_STANDARD std, VOID *v) {
 
 VOID SyscallExit(THREADID tid, CONTEXT *ctxt, SYSCALL_STANDARD std, VOID *v) {
     assert(inSyscall[tid]); inSyscall[tid] = false;
+
+    // ---- Sparse region auto-registration via mmap hook (Day 1) ----
+    // If the syscall just completed was mmap and returned a successful address,
+    // and the requested size is above our threshold, register the range as a
+    // sparse region. This lets us catch FL model/gradient/dataset buffers
+    // automatically without any modification to benchmark C++ code.
+    if (zinfo->sparsityEnabled) {
+        uint64_t sysNum = savedSyscallNum[tid];
+        // SYS_mmap = 9, SYS_mmap2 = 192 on Linux x86-64
+        if (sysNum == 9 || sysNum == 192) {
+            ADDRINT ret = PIN_GetSyscallReturn(ctxt, std);
+            uint64_t size = savedSyscallArg1[tid];
+            // (int64_t)ret > 0 filters out MAP_FAILED (== -1 as unsigned)
+            if ((int64_t)ret > 0 && size >= (uint64_t)zinfo->sparsityMinRegionKB * 1024) {
+                registerSparseRegion((uint64_t)ret, size);
+            }
+        }
+    }
 
     PostPatchAction ppa = VirtSyscallExit(tid, ctxt, std);
     if (ppa == PPA_USE_JOIN_PTRS) {

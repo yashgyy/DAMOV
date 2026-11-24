@@ -72,7 +72,7 @@ Template — copy for every step:
 - Problems / deviations: <none or short note>
 ```
 
-### Step 0 — Baseline + test harness  (2026-11-24, in progress)
+### Step 0 — Baseline + test harness  (2026-11-24, done)
 - To create: `phasched/include/phase_hint.h` (no-op hints, CPU stands in for NIC), `phasched/ubench/ubench.c`
   (one synthetic FL round: seq write 16 MB / random reads 64 MB / seq read 16 MB),
   `phasched/configs/zsim/base_ooo4_ddr4.cfg` (template_host_ooo, 4 cores, DDR4-config.cfg, maxTotalInstrs 20e9)

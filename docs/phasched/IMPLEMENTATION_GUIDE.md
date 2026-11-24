@@ -382,3 +382,48 @@ cd /DAMOV && gcc -O2 -I phasched/include -I simulator/misc/hooks phasched/ubench
    `phase,0,1` → `phase,1,2` → `phase,2,3` → `phase,3,0` → `end,0,-1`, with increasing cycles.
 3. Plausible durations (end−start): TRAIN ≫ INGRESS, EGRESS (TRAIN ≈ 2.8 G CPU cycles = 2 × dram_cycles).
 4. Regression: `cmp.sh golden/step0 ubench_base` → all OK.
+
+### Step 2 result
+`phases.csv`: IDLE→INGRESS at 0, INGRESS 0–2,807,000, TRAIN 2,807,000–1,432,654,000, EGRESS 1,432,654,000–
+1,435,448,000, end 1,435,449,000. cmp.sh vs golden all OK (max +0.057 %). ✅
+Notes: phase stamps are multiples of 1000 cycles because ZSim's bound-weave interval is `phaseLength = 1000`
+(phase change is applied at the next weave interval; error ≤ 1000 cycles ≈ 0.4 µs — negligible). Cycle 0 = ROI begin
+(Ramulator does not tick during fast-forward).
+
+---
+
+## Step 2b — Enable DAMOV's memory clock divider (correct DDR4-2400 timing)
+
+**Finding:** `curCycle` at the end (1,435,449,000) equals Ramulator's `dram_cycles` (1,435,449,000) exactly, i.e.
+Ramulator advances **one DRAM clock per CPU clock**. DAMOV left the clock divider commented out in
+`Ramulator::tick()`, so DDR4-2400 (1.2 GHz command clock) actually runs at 2.4 GHz: all DRAM timings and bandwidth are
+2× too fast in real time. The log even prints `CPU/Mem frequency ratio 2`, which is computed but unused.
+This affects all schedulers equally, but makes memory-bound phases (INGRESS/EGRESS, the paper's focus) look
+2× cheaper and would make the Table II "DDR4-2400" claim incorrect. Fix it before collecting results.
+
+`/DAMOV/simulator/src/ramulator_mem_ctrl.cpp`, in `Ramulator::tick()` replace
+```cpp
+  // REMOVE comments for clock divider (i.e., memory clock is different from host clock)
+  //if((tickCounter % freqRatio) == 0){
+  wrapper->tick();
+  //}
+  //tickCounter++;
+```
+with
+```cpp
+  // PhaSched: clock divider enabled -> DDR4-2400 runs at 1.2 GHz vs 2.4 GHz core
+  if ((tickCounter % freqRatio) == 0) {
+    wrapper->tick();
+  }
+  tickCounter++;
+```
+Rebuild ZSim only: `cd /DAMOV/simulator && sh scripts/compile.sh z`.
+
+### ✅ Checks
+1. Run base config. `ramulator.dram_cycles` ≈ **half** of the last `end_cycle` in `phases.csv`
+   (DRAM clock = CPU clock / 2).
+2. Total CPU cycles (last `end_cycle`) **increase** (memory is slower in real time); TRAIN grows most.
+3. `read_latency_avg` (in DRAM clocks) stays in the same range (~50–60), so latency in ns stays ~45 ns but now
+   corresponds to real time.
+4. All 4 schedulers still run (FCFS, FRFCFS, FRFCFS_Cap, base).
+5. Save the new reference: `golden/step2b.*` — **all later regression checks compare against step2b**.

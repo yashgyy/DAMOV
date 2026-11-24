@@ -48,7 +48,7 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 |---|---|---|---|---|
 | 0 | Baseline + ubench + golden output | ☑ | 2026-11-24 | golden saved, deterministic |
 | 1 | Config knobs (scheduler, queue, Whi/Wlo, cap) | ☑ | 2026-11-24 | + Ramulator get_hits bug fixed |
-| 2 | Phase interface (magic op → phase register) | ◐ | 2026-11-24 | instructions given |
+| 2 | Phase interface (magic op → phase register) | ☑ | 2026-11-24 | + Step 2b clock divider in progress |
 | 3 | Per-phase metrics CSV | ☐ | | |
 | 4 | PhaSched presets + starvation guard | ☐ | | |
 | 5 | BLISS baseline | ☐ | | |
@@ -119,13 +119,23 @@ Template — copy for every step:
   FRFCFS_Cap vs FRFCFS: all within 0.01 % (ubench is random-access, cap rarely triggers) → runs, no crash.
 - Result: ✅ Step 1 done.
 
-### Step 2 — Phase interface  (2026-11-24, in progress)
+### Step 2 — Phase interface  (2026-11-24, done)
 - Changes: `phasched/include/phase_hint.h` (magic op 1040 with arg in RDX), `simulator/src/zsim.cpp`
   (pass RDX/RSI to HandleMagicOp, case 1040), `simulator/src/ramulator_mem_ctrl.{h,cpp}` (pendingPhase, apply in
   tick, `<stats>.phases.csv` log), `ramulator/RamulatorWrapper.{h,cc}`, `ramulator/Memory.h`, `ramulator/Controller.h`
   (`int phase`).
 - Build error 1: `reference to 'REG_RDX' is ambiguous` (Pin enum vs `<sys/ucontext.h>`) → use
   `LEVEL_BASE::REG_RDX` / `LEVEL_BASE::REG_RSI` in the `INS_InsertCall`.
+- phases.csv: INGRESS 0–2.807 M, TRAIN 2.807 M–1432.654 M, EGRESS 1432.654 M–1435.448 M cycles (order correct,
+  TRAIN dominates as expected). Stamps quantised to 1000 cycles (ZSim bound-weave interval) — acceptable.
+- Regression vs golden: all OK (max +0.057 %).
+- Result: ✅ Step 2 done.
+
+### Step 2b — Memory clock divider  (2026-11-24, in progress)
+- Finding: end curCycle (1,435,449,000) == ramulator.dram_cycles → Ramulator ticks once per CPU cycle; DAMOV's clock
+  divider is commented out, so DDR4-2400 runs 2× too fast in real time (log prints ratio 2 but it is unused).
+- Decision: enable the divider (`if (tickCounter % freqRatio == 0) wrapper->tick();`) so Table II "DDR4-2400" is
+  correct; new golden `golden/step2b.*` becomes the regression reference.
 - Result: _pending_
 
 ## 6. Results (fill in Step 9)

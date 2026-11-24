@@ -267,3 +267,116 @@ for k in dram_cycles read_requests write_requests row_hits read_latency_avg; do
        printf "%-18s %16s %16s %+8.3f%%  %s\n",k,a,b,d,s}'
 done
 ```
+
+### Step 1 result
+FRFCFS_Cap runs after the fix; all schedulers within ±0.1 % of golden on ubench (random-access test, so the cap and
+FR-FCFS rarely matter). FCFS +1.0 % DRAM cycles, +4.4 % read latency. ✅
+
+---
+
+## Step 2 — Phase interface (app → ZSim → Ramulator)
+
+**Goal:** the program announces the round phase with a magic instruction; ZSim passes it to Ramulator; every
+memory controller stores it in `int phase`. Phase changes are logged with their cycle. **Still no behaviour
+change** (nothing reads `phase` yet).
+
+Rule: `HandleMagicOp` runs on the application thread, `Ramulator::tick()` on the simulation (weave) thread.
+The magic op only stores a number; `tick()` applies it.
+
+Before editing, back up each file: `cp <file> <file>.step1`.
+
+### 2.1 App side — `/DAMOV/phasched/include/phase_hint.h`
+Replace the line `static inline void fl_phase(int p) { (void)p; }` with:
+```c
+#define ZSIM_MAGIC_OP_PHASE (1040)   /* rdx = phase */
+
+static inline void zsim_op2(uint64_t op, uint64_t a, uint64_t b) {
+    COMPILER_BARRIER();
+    __asm__ __volatile__("xchg %%rcx, %%rcx;" : : "c"(op), "d"(a), "S"(b));
+    COMPILER_BARRIER();
+}
+#ifdef PHASCHED_NO_HINTS
+static inline void fl_phase(int p) { (void)p; }
+#else
+static inline void fl_phase(int p) { zsim_op2(ZSIM_MAGIC_OP_PHASE, (uint64_t)p, 0); }
+#endif
+```
+(`fl_dma_in/out` stay as CPU proxies until Step 6.) Rebuild ubench (Step 0.3 command).
+
+### 2.2 ZSim — `/DAMOV/simulator/src/zsim.cpp`
+1. Line ~149 (declaration): `VOID HandleMagicOp(THREADID tid, ADDRINT op);` →
+   `VOID HandleMagicOp(THREADID tid, ADDRINT op, PIN_REGISTER* rdx, ADDRINT rsi);`
+2. Line ~622 (instrumentation):
+   ```cpp
+   INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR) HandleMagicOp, IARG_THREAD_ID,
+                  IARG_REG_VALUE, REG_ECX, IARG_REG_REFERENCE, REG_RDX, IARG_REG_VALUE, REG_RSI, IARG_END);
+   ```
+3. Next to `#define ZSIM_MAGIC_OP_FUNCTION_END (1032)` (~line 1194): `#define ZSIM_MAGIC_OP_PHASE (1040)`
+4. Definition line ~1196: same new signature as in 1.
+5. In the `switch`, before `// HACK: Ubik magic ops`:
+   ```cpp
+        case ZSIM_MAGIC_OP_PHASE:
+            if (zinfo->ramulator_memory && zinfo->ramulator)
+                zinfo->ramulator->requestPhase((int)rdx->qword[0]);
+            return;
+   ```
+
+### 2.3 ZSim Ramulator object — `/DAMOV/simulator/src/ramulator_mem_ctrl.h`
+Add `#include <fstream>` at the top. In `class Ramulator`:
+- `public:` add `void requestPhase(int p) { pendingPhase = p; }`
+- `private:` add
+  ```cpp
+    volatile int pendingPhase = -1;   // set by magic op (app thread)
+    int curPhase = 0;                 // 0 IDLE, 1 INGRESS, 2 TRAIN, 3 EGRESS
+    uint64_t phaseStartCycle = 0;
+    std::ofstream* phaseLog = nullptr;
+  ```
+
+### 2.4 `/DAMOV/simulator/src/ramulator_mem_ctrl.cpp`
+- End of the constructor (after `name = _name;`):
+  ```cpp
+  phaseLog = new std::ofstream(application_name + ".phases.csv");
+  *phaseLog << "event,from_phase,to_phase,start_cycle,end_cycle\n";
+  ```
+- First lines of `Ramulator::tick(uint64_t cycle)`:
+  ```cpp
+  if (pendingPhase >= 0) {
+    int p = pendingPhase; pendingPhase = -1;
+    *phaseLog << "phase," << curPhase << "," << p << "," << phaseStartCycle << "," << curCycle << "\n";
+    curPhase = p; phaseStartCycle = curCycle;
+    wrapper->set_phase(p);
+  }
+  ```
+- In `Ramulator::finish()`, first lines:
+  ```cpp
+  *phaseLog << "end," << curPhase << ",-1," << phaseStartCycle << "," << curCycle << "\n";
+  phaseLog->flush();
+  ```
+(`curCycle` counts CPU cycles: tick runs every core cycle.)
+
+### 2.5 Plumbing into Ramulator
+- `/DAMOV/simulator/ramulator/RamulatorWrapper.h`, in the class (public): `void set_phase(int p);`
+- `/DAMOV/simulator/ramulator/RamulatorWrapper.cc`: `void RamulatorWrapper::set_phase(int p) { mem->set_phase(p); }`
+- `/DAMOV/simulator/ramulator/Memory.h`, class `MemoryBase` (~line 41): `virtual void set_phase(int p) {}`
+- `Memory.h`, class `Memory` (public, e.g. just before `bool send(Request req)` ~line 424):
+  `void set_phase(int p) { for (auto ctrl : ctrls) ctrl->phase = p; }`
+- `/DAMOV/simulator/ramulator/Controller.h`, next to `write_mode`: `int phase = 0;  // PhaSched round phase`
+
+### 2.6 Rebuild
+```bash
+cd /DAMOV/simulator/ramulator && make clean && make libramulator.so
+```
+```bash
+cd /DAMOV/simulator && sh scripts/compile.sh z
+```
+```bash
+cd /DAMOV && gcc -O2 -I phasched/include -I simulator/misc/hooks phasched/ubench/ubench.c -o phasched/ubench/ubench
+```
+
+### ✅ Checks
+1. Builds pass; `./phasched/ubench/ubench 16 64 1` still runs natively (hint is a no-op outside ZSim).
+2. Run base config (output to log, wait for it). Then
+   `cat /DAMOV/phasched/results/ubench_base.phases.csv` shows, in order:
+   `phase,0,1` → `phase,1,2` → `phase,2,3` → `phase,3,0` → `end,0,-1`, with increasing cycles.
+3. Plausible durations (end−start): TRAIN ≫ INGRESS, EGRESS (TRAIN ≈ 2.8 G CPU cycles = 2 × dram_cycles).
+4. Regression: `cmp.sh golden/step0 ubench_base` → all OK.

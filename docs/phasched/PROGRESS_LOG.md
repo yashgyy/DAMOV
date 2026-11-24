@@ -47,8 +47,8 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 | Step | Description | Status | Date | Notes |
 |---|---|---|---|---|
 | 0 | Baseline + ubench + golden output | ☑ | 2026-11-24 | golden saved, deterministic |
-| 1 | Config knobs (scheduler, queue, Whi/Wlo, cap) | ◐ | 2026-11-24 | instructions given |
-| 2 | Phase interface (magic op → phase register) | ☐ | | |
+| 1 | Config knobs (scheduler, queue, Whi/Wlo, cap) | ☑ | 2026-11-24 | + Ramulator get_hits bug fixed |
+| 2 | Phase interface (magic op → phase register) | ◐ | 2026-11-24 | instructions given |
 | 3 | Per-phase metrics CSV | ☐ | | |
 | 4 | PhaSched presets + starvation guard | ☐ | | |
 | 5 | BLISS baseline | ☐ | | |
@@ -91,7 +91,7 @@ Template — copy for every step:
   row_hits 1,034,622 · read_latency_avg 54.60 clk (45.50 ns).
 - Result: ✅ all 5 checks passed; golden saved to `phasched/results/golden/step0.*`.
 
-### Step 1 — Scheduler / knobs from config  (2026-11-24, in progress)
+### Step 1 — Scheduler / knobs from config  (2026-11-24, done)
 - Change: `simulator/ramulator/Controller.h` only (wq_high/wq_low members, config keys `scheduler`, `row_hit_cap`,
   `queue_size`, `wq_high`, `wq_low`, watermarks used in `tick()`).
 - New configs: `phasched/configs/ramulator/DDR4-{FCFS,FRFCFS,FRFCFS_Cap}.cfg`, `phasched/configs/zsim/ubench_*.cfg`.
@@ -114,7 +114,17 @@ Template — copy for every step:
 - Check 4 (partial): base 1,435,563,000 cyc / 54.61 clk; FRFCFS 1,435,509,000 / 54.61 (≈ base, as expected);
   FCFS 1,450,085,000 (+1.0 %) / 57.04 (+4.4 %) — FCFS slower, as expected. Row hits ≈ equal (random workload).
 - Resources: host 125 GB RAM; 4 parallel ZSim runs OK memory-wise.
-- Result: _pending — FRFCFS_Cap after get_hits fix_
+- After get_hits fix (cmp.sh, ±0.1 % rule):
+  default vs golden: dram_cycles +0.004 %, read_requests −0.002 %, latency +0.011 % → all OK.
+  FRFCFS_Cap vs FRFCFS: all within 0.01 % (ubench is random-access, cap rarely triggers) → runs, no crash.
+- Result: ✅ Step 1 done.
+
+### Step 2 — Phase interface  (2026-11-24, in progress)
+- Changes: `phasched/include/phase_hint.h` (magic op 1040 with arg in RDX), `simulator/src/zsim.cpp`
+  (pass RDX/RSI to HandleMagicOp, case 1040), `simulator/src/ramulator_mem_ctrl.{h,cpp}` (pendingPhase, apply in
+  tick, `<stats>.phases.csv` log), `ramulator/RamulatorWrapper.{h,cc}`, `ramulator/Memory.h`, `ramulator/Controller.h`
+  (`int phase`).
+- Result: _pending_
 
 ## 6. Results (fill in Step 9)
 

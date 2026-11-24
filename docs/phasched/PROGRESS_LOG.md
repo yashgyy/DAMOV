@@ -36,7 +36,7 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 |---|---|---|
 | Cores | 4 × 4-wide OOO x86-64, 2.4 GHz | DAMOV `template_host_ooo.cfg` |
 | Caches | 32 kB L1-D (8-way, 4 cyc), 32 kB L1-I, 256 kB L2 (8-way, 7 cyc), 8 MB shared L3 (16-way, 16 banks, 27 cyc) | DAMOV template defaults |
-| Memory | DDR4-2400 (DDR4_4Gb_x8), 1 channel, 1 rank, 32-entry read/write queues | `DDR4-config.cfg`, Ramulator default `Queue::max = 32` |
+| Memory | DDR4-2400 (DDR4_4Gb_x8), 1 channel, 1 rank, 32-entry read/write queues; memory clock = core/2 (DAMOV divider enabled, Step 2b) | `DDR4-config.cfg`, Ramulator default `Queue::max = 32` |
 | Baseline scheduler | FR-FCFS, write drain 80 % / 20 %, cap 16 for FR-FCFS-Cap | Ramulator defaults |
 | Network | 10 GbE (1.25 GB/s → 122.88 CPU cycles per 64 B line), DMA injector | chosen |
 | Workloads | FedAvg clients (C++): LogReg, naive Bayes, DNN, 2-layer LSTM, GRU | user |
@@ -48,8 +48,8 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 |---|---|---|---|---|
 | 0 | Baseline + ubench + golden output | ☑ | 2026-11-24 | golden saved, deterministic |
 | 1 | Config knobs (scheduler, queue, Whi/Wlo, cap) | ☑ | 2026-11-24 | + Ramulator get_hits bug fixed |
-| 2 | Phase interface (magic op → phase register) | ☑ | 2026-11-24 | + Step 2b clock divider in progress |
-| 3 | Per-phase metrics CSV | ☐ | | |
+| 2 | Phase interface (magic op → phase register) | ☑ | 2026-11-24 | + Step 2b: memory clock divider enabled |
+| 3 | Per-phase metrics CSV | ◐ | 2026-11-24 | instructions given |
 | 4 | PhaSched presets + starvation guard | ☐ | | |
 | 5 | BLISS baseline | ☐ | | |
 | 6 | DMA injector (NIC) | ☐ | | |
@@ -131,11 +131,20 @@ Template — copy for every step:
 - Regression vs golden: all OK (max +0.057 %).
 - Result: ✅ Step 2 done.
 
-### Step 2b — Memory clock divider  (2026-11-24, in progress)
+### Step 2b — Memory clock divider  (2026-11-24, done)
 - Finding: end curCycle (1,435,449,000) == ramulator.dram_cycles → Ramulator ticks once per CPU cycle; DAMOV's clock
   divider is commented out, so DDR4-2400 runs 2× too fast in real time (log prints ratio 2 but it is unused).
 - Decision: enable the divider (`if (tickCounter % freqRatio == 0) wrapper->tick();`) so Table II "DDR4-2400" is
   correct; new golden `golden/step2b.*` becomes the regression reference.
+- Results: end cycle 1,895,427,000 (+32 % vs 1,435,449,000); dram_cycles 947,713,500 = ½ CPU cycles ✅.
+  base: 55.10 clk latency, 1,057,759 row hits. FCFS: 991.6 M dram cyc (+4.6 %), 60.03 clk (+9 %).
+  FRFCFS: 947.7 M, 55.11. FRFCFS_Cap: 947.7 M, 55.11 (≈ FRFCFS, random workload).
+- Result: ✅ Step 2b done (pending: save golden/step2b.*, confirm FRFCFS_Cap phases.csv end line).
+
+### Step 3 — Per-phase metrics  (2026-11-24, in progress)
+- Changes: Request.h (`is_dma`), Controller.h (PhaseCnt counters, latency histogram, turnaround count, command
+  counts in issue_cmd, `dump_phase`), Memory.h / RamulatorWrapper (phase_snapshot), ramulator_mem_ctrl.cpp (CSV rows).
+- New helper: `phasched/scripts/phasum.sh`.
 - Result: _pending_
 
 ## 6. Results (fill in Step 9)

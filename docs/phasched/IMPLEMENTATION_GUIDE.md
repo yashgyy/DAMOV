@@ -427,3 +427,126 @@ Rebuild ZSim only: `cd /DAMOV/simulator && sh scripts/compile.sh z`.
    corresponds to real time.
 4. All 4 schedulers still run (FCFS, FRFCFS, FRFCFS_Cap, base).
 5. Save the new reference: `golden/step2b.*` — **all later regression checks compare against step2b**.
+
+### Step 2b result
+end cycle 1,895,427,000 (was 1,435,449,000, +32 %); dram_cycles 947,713,500 = ½ of CPU cycles ✅.
+read_latency_avg 55.10 DRAM clk. FCFS +4.6 % cycles / +9 % latency vs FRFCFS; FRFCFS, FRFCFS_Cap ≈ base.
+New regression reference: `golden/step2b.*`.
+
+---
+
+## Step 3 — Per-phase metrics
+
+**Goal:** one CSV row per (phase interval × channel) with everything the paper needs: duration, reads, read-latency
+sum/P50/P99, DMA reads, writes, read↔write turnarounds, ACT/PRE/RD/WR/REF commands, row hits.
+**No behaviour change** (counters only).
+
+### 3.1 `/DAMOV/simulator/ramulator/Request.h`
+Next to `int coreid = -1;` add: `bool is_dma = false;  // PhaSched: request from the NIC model (Step 6)`
+
+### 3.2 `/DAMOV/simulator/ramulator/Controller.h` — counters
+Below `int phase = 0;` add:
+```cpp
+    struct PhaseCnt { long reads=0, rd_lat_sum=0, dma_reads=0, writes=0, turnarounds=0,
+                      act=0, pre=0, rd=0, wr=0, ref=0, row_hits=0; } pc;
+    vector<long> lat_hist = vector<long>(4097, 0);  // core read latency (DRAM clk), last bin = overflow
+```
+
+### 3.3 `Controller.h` — increment the counters (inside `tick()` unless noted)
+a) **Completed reads** — in `/*** 1. Serve completed reads ***/`, inside
+`if (req.depart - req.arrive > 1) {`, after `(*read_latency_sum) += req.depart - req.arrive;` add:
+```cpp
+                  long lat = req.depart - req.arrive;
+                  if (!req.is_dma) { pc.reads++; pc.rd_lat_sum += lat; lat_hist[min(lat, 4096L)]++; }
+                  else pc.dma_reads++;
+```
+b) **Turnarounds** — replace the whole `/*** 3. Should we schedule writes? ***/` block with:
+```cpp
+        if (!write_mode) {
+            if (writeq.size() >= int(wq_high * writeq.max) || readq.size() == 0) {
+                write_mode = true; pc.turnarounds++;
+            }
+        }
+        else {
+            if (writeq.size() <= int(wq_low * writeq.max) && readq.size() != 0) {
+                write_mode = false; pc.turnarounds++;
+            }
+        }
+```
+c) **Writes** — after `(*write_transaction_bytes) += tx;` add `pc.writes++;`
+d) **Row hits** — after **both** `++(*row_hits);` lines (read and write branch) add `pc.row_hits++;`
+e) **DRAM commands** — in `void issue_cmd(...)`, right after `assert(is_ready(cmd, addr_vec));` add:
+```cpp
+        {   // PhaSched per-phase command counts
+            auto* sp = channel->spec;
+            if (sp->is_opening(cmd)) pc.act++;
+            if (sp->is_refreshing(cmd)) pc.ref++;
+            if (sp->is_closing(cmd)) pc.pre++;            // PRE, PREA, RDA, WRA
+            if (sp->is_accessing(cmd)) {
+                if (sp->command_name[int(cmd)][0] == 'R') pc.rd++; else pc.wr++;
+            }
+        }
+```
+
+### 3.4 `Controller.h` — dump function (add as a public member function, e.g. just before `void finish(long dram_cycles)`)
+```cpp
+    void dump_phase(std::ostream& o, int ph, unsigned long long c0, unsigned long long c1) {
+        long n = 0, p50 = 0, p99 = 0;
+        for (int i = 0; i < (int)lat_hist.size() && pc.reads > 0; i++) {
+            n += lat_hist[i];
+            if (!p50 && n * 2 >= pc.reads) p50 = i;
+            if (n * 100 >= pc.reads * 99) { p99 = i; break; }
+        }
+        o << ph << "," << c0 << "," << c1 << "," << channel->id << "," << pc.reads << "," << pc.rd_lat_sum << ","
+          << p50 << "," << p99 << "," << pc.dma_reads << "," << pc.writes << "," << pc.turnarounds << ","
+          << pc.act << "," << pc.pre << "," << pc.rd << "," << pc.wr << "," << pc.ref << "," << pc.row_hits << "\n";
+        pc = PhaseCnt();
+        std::fill(lat_hist.begin(), lat_hist.end(), 0);
+    }
+```
+
+### 3.5 Plumbing (same pattern as `set_phase` in Step 2)
+| File | Add |
+|---|---|
+| `ramulator/Memory.h`, class `MemoryBase` | `virtual void phase_snapshot(std::ostream& o, int ph, unsigned long long c0, unsigned long long c1) {}` |
+| `ramulator/Memory.h`, class `Memory` (next to `set_phase`) | `void phase_snapshot(std::ostream& o, int ph, unsigned long long c0, unsigned long long c1) { for (auto ctrl : ctrls) ctrl->dump_phase(o, ph, c0, c1); }` |
+| `ramulator/RamulatorWrapper.h` (public) | `void phase_snapshot(std::ostream& o, int ph, unsigned long long c0, unsigned long long c1);` (add `#include <ostream>` at top) |
+| `ramulator/RamulatorWrapper.cc` | `void RamulatorWrapper::phase_snapshot(std::ostream& o, int ph, unsigned long long c0, unsigned long long c1) { mem->phase_snapshot(o, ph, c0, c1); }` |
+
+### 3.6 `/DAMOV/simulator/src/ramulator_mem_ctrl.cpp` — write rows instead of Step 2's lines
+- Constructor: header line becomes
+  ```cpp
+  *phaseLog << "phase,start_cycle,end_cycle,ch,reads,rd_lat_sum,rd_lat_p50,rd_lat_p99,dma_reads,writes,turnarounds,act,pre,rd,wr,ref,row_hits\n";
+  ```
+- `tick()` phase block: replace the `*phaseLog << "phase," ...` line with
+  `wrapper->phase_snapshot(*phaseLog, curPhase, phaseStartCycle, curCycle);`
+- `finish()`: replace the `*phaseLog << "end," ...` line with
+  `wrapper->phase_snapshot(*phaseLog, curPhase, phaseStartCycle, curCycle);`
+
+Cycles in columns 2–3 are CPU cycles; latencies (cols 6–8) are DRAM clocks (tCK = 0.833 ns).
+
+### 3.7 Rebuild (headers changed → clean Ramulator) and run base config
+
+### 3.8 Helper: `/DAMOV/phasched/scripts/phasum.sh`
+```bash
+#!/bin/bash
+# usage: phasum.sh file.phases.csv  -> per-phase table + column sums
+awk -F, 'NR==1{next}
+ {d=$3-$2; printf "ph=%s ch=%s cycles=%d reads=%d avg_lat=%.1f p50=%d p99=%d dma_rd=%d wr=%d turn=%d act=%d pre=%d rd=%d wrc=%d ref=%d hits=%d\n",
+   $1,$4,d,$5,($5>0?$6/$5:0),$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17;
+   for(i=5;i<=17;i++) s[i]+=$i}
+ END{printf "SUM reads=%d rd_lat_sum=%d dma_reads=%d writes=%d turnarounds=%d act=%d pre=%d rd=%d wr=%d ref=%d row_hits=%d\n",
+   s[5],s[6],s[9],s[10],s[11],s[12],s[13],s[14],s[15],s[16],s[17]}' "$1"
+```
+
+### ✅ Checks
+1. Build passes.
+2. `phasum.sh ubench_base.phases.csv` shows 5 rows: IDLE (0 length), INGRESS, TRAIN, EGRESS, IDLE (final).
+3. Consistency with `ramulator.stats`:
+   - SUM `rd_lat_sum` == `ramulator.read_latency_sum` (exact)
+   - SUM `row_hits` == `ramulator.row_hits` (exact)
+   - SUM `reads` ≈ `ramulator.read_requests`, SUM `writes` ≈ `ramulator.write_requests` (within ~0.1 %; reads
+     forwarded from the write queue and requests in flight at the end are not counted)
+   - SUM `rd` ≈ SUM `reads`, SUM `wr` ≈ SUM `writes`; `act` ≈ `row_misses + row_conflicts`
+4. Per-phase sense: INGRESS write-heavy; TRAIN read-heavy with turnarounds > 0; EGRESS mostly reads.
+5. Regression: `cmp.sh golden/step2b ubench_base` all OK.

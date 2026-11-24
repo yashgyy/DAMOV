@@ -46,8 +46,8 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 
 | Step | Description | Status | Date | Notes |
 |---|---|---|---|---|
-| 0 | Baseline + ubench + golden output | ◐ | 2026-11-24 | Instructions given; waiting for user's results |
-| 1 | Config knobs (scheduler, queue, Whi/Wlo, cap) | ☐ | | |
+| 0 | Baseline + ubench + golden output | ☑ | 2026-11-24 | golden saved, deterministic |
+| 1 | Config knobs (scheduler, queue, Whi/Wlo, cap) | ◐ | 2026-11-24 | instructions given |
 | 2 | Phase interface (magic op → phase register) | ☐ | | |
 | 3 | Per-phase metrics CSV | ☐ | | |
 | 4 | PhaSched presets + starvation guard | ☐ | | |
@@ -87,7 +87,15 @@ Template — copy for every step:
 - Host user uid:gid = 1037:1041 → `chown -R 1037:1041 /DAMOV/phasched` inside container fixes VS Code permissions.
 - Run time ≈ 5 min (16:47 → 16:52) for ubench 16 64 1.
 - Determinism: two runs → `ramulator.stats` IDENTICAL ✅
-- Result: checks 1, 2, 4 passed; check 3 values and golden copy _pending_
+- Golden values: dram_cycles 1,435,415,000 · read_requests 16,394,048 · write_requests 1,310,721 ·
+  row_hits 1,034,622 · read_latency_avg 54.60 clk (45.50 ns).
+- Result: ✅ all 5 checks passed; golden saved to `phasched/results/golden/step0.*`.
+
+### Step 1 — Scheduler / knobs from config  (2026-11-24, in progress)
+- Change: `simulator/ramulator/Controller.h` only (wq_high/wq_low members, config keys `scheduler`, `row_hit_cap`,
+  `queue_size`, `wq_high`, `wq_low`, watermarks used in `tick()`).
+- New configs: `phasched/configs/ramulator/DDR4-{FCFS,FRFCFS,FRFCFS_Cap}.cfg`, `phasched/configs/zsim/ubench_*.cfg`.
+- Result: _pending_
 
 ## 6. Results (fill in Step 9)
 

@@ -95,7 +95,10 @@ Template — copy for every step:
 - Change: `simulator/ramulator/Controller.h` only (wq_high/wq_low members, config keys `scheduler`, `row_hit_cap`,
   `queue_size`, `wq_high`, `wq_low`, watermarks used in `tick()`).
 - New configs: `phasched/configs/ramulator/DDR4-{FCFS,FRFCFS,FRFCFS_Cap}.cfg`, `phasched/configs/zsim/ubench_*.cfg`.
-- Result: _pending_
+- Build: ✅ libramulator.so + zsim rebuilt without errors. `[PHASCHED] ch0 scheduler=FRFCFS_PriorHit(default) cap=16 q=32 whi=0.80 wlo=0.20` printed.
+- Check 2 attempt 1: INVALID — run was stopped with Ctrl-C (output piped to grep looked idle); partial stats
+  (dram_cycles 44.4M vs 1435M) were dumped, so diff vs golden differed. Lesson: never interrupt; log to file instead of piping.
+- Result: _pending (re-run check 2, then checks 3–4)_
 
 ## 6. Results (fill in Step 9)
 

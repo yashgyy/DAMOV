@@ -124,6 +124,8 @@ Template — copy for every step:
   (pass RDX/RSI to HandleMagicOp, case 1040), `simulator/src/ramulator_mem_ctrl.{h,cpp}` (pendingPhase, apply in
   tick, `<stats>.phases.csv` log), `ramulator/RamulatorWrapper.{h,cc}`, `ramulator/Memory.h`, `ramulator/Controller.h`
   (`int phase`).
+- Build error 1: `reference to 'REG_RDX' is ambiguous` (Pin enum vs `<sys/ucontext.h>`) → use
+  `LEVEL_BASE::REG_RDX` / `LEVEL_BASE::REG_RSI` in the `INS_InsertCall`.
 - Result: _pending_
 
 ## 6. Results (fill in Step 9)

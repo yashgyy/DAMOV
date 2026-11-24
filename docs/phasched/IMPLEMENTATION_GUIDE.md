@@ -309,8 +309,10 @@ static inline void fl_phase(int p) { zsim_op2(ZSIM_MAGIC_OP_PHASE, (uint64_t)p, 
 2. Line ~622 (instrumentation):
    ```cpp
    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR) HandleMagicOp, IARG_THREAD_ID,
-                  IARG_REG_VALUE, REG_ECX, IARG_REG_REFERENCE, REG_RDX, IARG_REG_VALUE, REG_RSI, IARG_END);
+                  IARG_REG_VALUE, REG_ECX, IARG_REG_REFERENCE, LEVEL_BASE::REG_RDX,
+                  IARG_REG_VALUE, LEVEL_BASE::REG_RSI, IARG_END);
    ```
+   (Must be `LEVEL_BASE::` — plain `REG_RDX`/`REG_RSI` clash with `<sys/ucontext.h>`: "reference to 'REG_RDX' is ambiguous".)
 3. Next to `#define ZSIM_MAGIC_OP_FUNCTION_END (1032)` (~line 1194): `#define ZSIM_MAGIC_OP_PHASE (1040)`
 4. Definition line ~1196: same new signature as in 1.
 5. In the `switch`, before `// HACK: Ubik magic ops`:

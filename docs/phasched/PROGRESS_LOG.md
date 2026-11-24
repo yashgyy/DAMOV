@@ -82,7 +82,12 @@ Template — copy for every step:
   2. `ubench: No such file or directory` — host path used; container path is `/DAMOV/...`.
   3. Ramulator assertion `!stat_output.good()` — `stats` must be relative to `/DAMOV/simulator` (`../phasched/results/ubench_base`).
 - Native run OK; ZSim run completes (DDR4 @1200 MHz, ROI begin/end, `Finished, code 0`).
-- Result: run OK; stats values / determinism check / golden copy _pending_
+- Outputs (in `/DAMOV/phasched/results/`): `ubench_base.ramulator.stats`, `.zsim.out`, `.out.cfg`,
+  `.dramRequestsPerPhase` (16 MB — DAMOV per-phase DRAM request dump; watch size for long runs).
+- Host user uid:gid = 1037:1041 → `chown -R 1037:1041 /DAMOV/phasched` inside container fixes VS Code permissions.
+- Run time ≈ 5 min (16:47 → 16:52) for ubench 16 64 1.
+- Determinism: two runs → `ramulator.stats` IDENTICAL ✅
+- Result: checks 1, 2, 4 passed; check 3 values and golden copy _pending_
 
 ## 6. Results (fill in Step 9)
 

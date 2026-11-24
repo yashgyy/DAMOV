@@ -77,7 +77,12 @@ Template — copy for every step:
   (one synthetic FL round: seq write 16 MB / random reads 64 MB / seq read 16 MB),
   `phasched/configs/zsim/base_ooo4_ddr4.cfg` (template_host_ooo, 4 cores, DDR4-config.cfg, maxTotalInstrs 20e9)
 - Checks: runs native + in ZSim; stats show DDR4; two runs identical; golden saved to `phasched/results/golden/step0.*`
-- Result: _pending_
+- Issues hit & fixed:
+  1. VS Code `EACCES` on new files — files created as root inside Docker container; fix with `chown` or attach VS Code to container.
+  2. `ubench: No such file or directory` — host path used; container path is `/DAMOV/...`.
+  3. Ramulator assertion `!stat_output.good()` — `stats` must be relative to `/DAMOV/simulator` (`../phasched/results/ubench_base`).
+- Native run OK; ZSim run completes (DDR4 @1200 MHz, ROI begin/end, `Finished, code 0`).
+- Result: run OK; stats values / determinism check / golden copy _pending_
 
 ## 6. Results (fill in Step 9)
 

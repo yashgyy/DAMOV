@@ -5,6 +5,11 @@ Steps are added here one at a time, as they are given in chat. Progress and resu
 
 **Working rule for every step:** make the change → build → run the step's checks → commit → record in the log.
 
+**Environment:** everything runs inside the Docker container `damov_phase` (`docker exec -it damov_phase /bin/bash`).
+Repo path inside the container is **`/DAMOV`**. Always run ZSim from `/DAMOV/simulator`.
+Files created inside the container are owned by root; to edit them from VS Code on the host either
+`chown -R <host uid>:<host gid> /DAMOV/phasched` inside the container, or attach VS Code to the container.
+
 ---
 
 ## Step 0 — Baseline and test program
@@ -95,8 +100,12 @@ Edit:
 | every `NUMBER_CORES` | `4` |
 | `ramulatorConfig = "ramulator-configs/HMC-config.cfg";` | `ramulatorConfig = "ramulator-configs/DDR4-config.cfg";` |
 | `maxTotalInstrs = 1000000000L;` | `maxTotalInstrs = 20000000000L;` |
-| `stats = "STATS_PATH";` | `stats = "<ABS PATH>/DAMOV/phasched/results/ubench_base";` |
-| `command = COMMAND_STRING` | `command = "<ABS PATH>/DAMOV/phasched/ubench/ubench 16 64 1";` |
+| `stats = "STATS_PATH";` | `stats = "../phasched/results/ubench_base";` |
+| `command = COMMAND_STRING` | `command = "/DAMOV/phasched/ubench/ubench 16 64 1";` |
+
+`stats` must be **relative to `/DAMOV/simulator`** — Ramulator prepends the run directory to it (an absolute path
+gives `/DAMOV/simulator//DAMOV/...` and the assertion `!stat_output.good()`). `command` must be an absolute
+container path.
 
 ### 0.5 Run
 Native (should just print `acc ...`):
@@ -105,7 +114,7 @@ Native (should just print `acc ...`):
 ```
 Simulator (run from `simulator/`, the Ramulator config path is relative to it):
 ```bash
-cd simulator && ./build/opt/zsim ../phasched/configs/zsim/base_ooo4_ddr4.cfg
+cd /DAMOV/simulator && time ./build/opt/zsim ../phasched/configs/zsim/base_ooo4_ddr4.cfg
 ```
 
 ### ✅ Checks

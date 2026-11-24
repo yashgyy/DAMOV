@@ -223,3 +223,47 @@ done
    for f in golden/step0 ubench_FCFS ubench_FRFCFS ubench_FRFCFS_Cap; do echo "== $f"; grep -E "ramulator\.(dram_cycles|row_hits|read_latency_avg) " $f.ramulator.stats; done
    ```
    Expect FCFS: fewest row hits, highest read latency. FRFCFS and FRFCFS_Cap close to each other and to the golden.
+
+### 1.6 Bug fix: `RowTable::get_hits` (needed for FRFCFS_Cap and later PhaSched)
+Symptom: FRFCFS_Cap crashes with
+`Scheduler.h:240 RowTable<T>::update ... Assertion 'match->second.row == row' failed`.
+Cause: `get_hits()` uses `table[rowgroup]`, which **inserts** a fake entry (row 0) for a closed bank; the next ACT
+uses `table.insert(...)`, which does not overwrite an existing key, so the table keeps row 0 and the next RD/WR asserts.
+Only `FRFCFS_Cap` calls `get_hits` (Scheduler.h:132-133), so other schedulers are unaffected.
+
+In `/DAMOV/simulator/ramulator/Scheduler.h`, `int get_hits(vector<int>& addr_vec)` — replace
+```cpp
+        auto itr = table.find(rowgroup);
+        auto entry = table[rowgroup];
+        if (itr == table.end() || entry.row != row)
+            return 0;
+
+        return entry.hits;
+```
+with
+```cpp
+        auto itr = table.find(rowgroup);          // PhaSched fix: never insert here
+        if (itr == table.end() || itr->second.row != row)
+            return 0;
+
+        return itr->second.hits;
+```
+Rebuild as in 1.4.
+
+### Regression rule (updated after Step 1)
+ZSim runs are **not bit-identical** run-to-run: three runs of the same config gave dram_cycles 1,435,415,000 /
+1,435,446,000 / 1,435,563,000 (spread 0.01 %). A regression check therefore passes when `dram_cycles`,
+`read_requests` and `read_latency_avg` are within **±0.1 %** of the reference. Use the compare script below instead of
+`diff`.
+
+`/DAMOV/phasched/scripts/cmp.sh`:
+```bash
+#!/bin/bash
+# usage: cmp.sh ref.ramulator.stats new.ramulator.stats
+for k in dram_cycles read_requests write_requests row_hits read_latency_avg; do
+  a=$(grep -E "ramulator\.$k " "$1" | awk '{print $2}')
+  b=$(grep -E "ramulator\.$k " "$2" | awk '{print $2}')
+  awk -v k=$k -v a=$a -v b=$b 'BEGIN{d=(b-a)/a*100; s=(d<0?-d:d)<=0.1?"OK":"DIFF";
+       printf "%-18s %16s %16s %+8.3f%%  %s\n",k,a,b,d,s}'
+done
+```

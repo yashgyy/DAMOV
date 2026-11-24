@@ -104,7 +104,17 @@ Template — copy for every step:
   environment: golden ran with stdout to the terminal, this run with stdout to a file.
   Test: re-run with redirect; if identical to attempt 2 → code is neutral, re-baseline golden with the
   redirect method (`golden/step1_base.*`) and always run with `> log 2>&1` from now on.
-- Result: _pending_
+- Check 2 attempt 3 (redirected, 4 runs in parallel): again ~0.01 % different from attempt 2
+  (dram_cycles 1,435,563,000). ⇒ ZSim is NOT bit-deterministic run-to-run (spread 0.01 % over 3 runs).
+  Decision: regression passes within ±0.1 % on key stats; added `phasched/scripts/cmp.sh`.
+- Check 3: FCFS / FRFCFS / FRFCFS_PriorHit(default) each printed their own `[PHASCHED]` line ✅.
+  FRFCFS_Cap CRASHED: `Scheduler.h:240 RowTable::update Assertion 'match->second.row == row'`.
+  Cause: Ramulator bug — `RowTable::get_hits()` uses `table[rowgroup]` which inserts a fake row-0 entry for closed
+  banks; later ACT `insert` does not overwrite it. Fix: use the `find` iterator only (guide 1.6).
+- Check 4 (partial): base 1,435,563,000 cyc / 54.61 clk; FRFCFS 1,435,509,000 / 54.61 (≈ base, as expected);
+  FCFS 1,450,085,000 (+1.0 %) / 57.04 (+4.4 %) — FCFS slower, as expected. Row hits ≈ equal (random workload).
+- Resources: host 125 GB RAM; 4 parallel ZSim runs OK memory-wise.
+- Result: _pending — FRFCFS_Cap after get_hits fix_
 
 ## 6. Results (fill in Step 9)
 

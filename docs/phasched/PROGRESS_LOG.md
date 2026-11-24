@@ -98,7 +98,13 @@ Template — copy for every step:
 - Build: ✅ libramulator.so + zsim rebuilt without errors. `[PHASCHED] ch0 scheduler=FRFCFS_PriorHit(default) cap=16 q=32 whi=0.80 wlo=0.20` printed.
 - Check 2 attempt 1: INVALID — run was stopped with Ctrl-C (output piped to grep looked idle); partial stats
   (dram_cycles 44.4M vs 1435M) were dumped, so diff vs golden differed. Lesson: never interrupt; log to file instead of piping.
-- Result: _pending (re-run check 2, then checks 3–4)_
+- Check 2 attempt 2 (full run, output redirected to a log file): NOT bit-identical but within 0.002 %
+  (dram_cycles 1,435,446,000 vs 1,435,415,000; read_requests +370; read_latency_avg 54.606 vs 54.601).
+  The code change cannot alter behaviour at default (0.8/0.2 are the same values), so suspected cause is the run
+  environment: golden ran with stdout to the terminal, this run with stdout to a file.
+  Test: re-run with redirect; if identical to attempt 2 → code is neutral, re-baseline golden with the
+  redirect method (`golden/step1_base.*`) and always run with `> log 2>&1` from now on.
+- Result: _pending_
 
 ## 6. Results (fill in Step 9)
 

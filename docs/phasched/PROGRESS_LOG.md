@@ -145,7 +145,13 @@ Template — copy for every step:
 - Changes: Request.h (`is_dma`), Controller.h (PhaseCnt counters, latency histogram, turnaround count, command
   counts in issue_cmd, `dump_phase`), Memory.h / RamulatorWrapper (phase_snapshot), ramulator_mem_ctrl.cpp (CSV rows).
 - New helper: `phasched/scripts/phasum.sh`.
-- Result: _pending_
+- Results (base, 2026-11-25): consistency checks exact (rd_lat_sum, row_hits, writes); reads −9 (forwarded);
+  act +0.3 % vs misses+conflicts. Regression vs step2b OK (max 0.015 %).
+  Per phase: INGRESS 5.0 M cyc (CPU proxy: 262 k reads = RFO of memset, 131 k writes, 99 % row hits, avg lat 75, p99 377);
+  TRAIN 1886 M cyc (15.9 M reads, 1.17 M writes, avg 55.1, p99 128); EGRESS 4.05 M cyc (262 k reads, avg 35, p99 123).
+- Issue: turnarounds counted write_mode flips (20.9 M in TRAIN) — baseline enters write mode whenever readq is
+  empty, even with no writes. Fix (Step 3b): count real RD↔WR direction changes of column commands in issue_cmd.
+- Result: ✅ metrics correct except turnarounds → Step 3b in progress.
 
 ## 6. Results (fill in Step 9)
 

@@ -550,3 +550,40 @@ awk -F, 'NR==1{next}
    - SUM `rd` ≈ SUM `reads`, SUM `wr` ≈ SUM `writes`; `act` ≈ `row_misses + row_conflicts`
 4. Per-phase sense: INGRESS write-heavy; TRAIN read-heavy with turnarounds > 0; EGRESS mostly reads.
 5. Regression: `cmp.sh golden/step2b ubench_base` all OK.
+
+### Step 3 result
+Consistency: SUM rd_lat_sum = read_latency_sum (903,443,821) exact; row_hits exact (1,057,874); writes exact
+(1,310,721); reads 16,394,184 vs 16,394,193 (forwarded reads); act 16.70 M ≈ misses+conflicts 16.65 M (+0.3 %,
+refresh-induced re-opens). Regression vs step2b all OK. ✅
+**Problem found:** TRAIN `turnarounds = 20.9 M` (more than one per request). The counter counts `write_mode` flips,
+and the baseline enters write mode whenever the read queue is empty — even with an empty write queue — so most flips
+are not real bus turnarounds. → Step 3b.
+
+## Step 3b — Count real bus turnarounds
+A real turnaround = a column command whose direction differs from the previous column command (RD→WR or WR→RD);
+that is when tWTR / tRTW penalties are paid.
+
+`/DAMOV/simulator/ramulator/Controller.h`
+1. Next to `PhaseCnt pc;` add: `int last_acc = -1;  // last column command: 1 = read, 0 = write`
+2. In the `/*** 3. Should we schedule writes? ***/` block remove both `pc.turnarounds++;` (keep the braces).
+3. In the issue_cmd counting block replace
+   ```cpp
+            if (sp->is_accessing(cmd)) {
+                if (sp->command_name[int(cmd)][0] == 'R') pc.rd++; else pc.wr++;
+            }
+   ```
+   with
+   ```cpp
+            if (sp->is_accessing(cmd)) {
+                int is_rd = (sp->command_name[int(cmd)][0] == 'R');
+                if (is_rd) pc.rd++; else pc.wr++;
+                if (last_acc >= 0 && last_acc != is_rd) pc.turnarounds++;
+                last_acc = is_rd;
+            }
+   ```
+Clean-rebuild Ramulator, rebuild ZSim, run base.
+
+### ✅ Checks
+1. Every phase: `turn ≤ 2 × min(rd, wrc)` (a switch needs a write between reads).
+2. TRAIN turnarounds now in the order of the write count (≈ 1–2.3 M), not 20.9 M.
+3. All other columns and `cmp.sh` vs step2b unchanged (OK).

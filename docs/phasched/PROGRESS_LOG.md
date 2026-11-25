@@ -275,6 +275,18 @@ Template — copy for every step:
 ### Step 8d — Main matrix 5 workloads × 5 schedulers @ 10 G  (2026-11-25, running)
 - Result: _pending_
 
+### Paper draft update  (2026-11-25)
+- `paper/paper1_phase_aware_scheduling.tex` (original kept as `.orig.tex`, `.bbl` copied).
+- Filled: N = five workloads; Table II (4 cores @2.4 GHz, DDR4-2400 1 ch/1 rank, 32-entry queues, 10 GbE,
+  synthetic FedAvg LR/NB/MLP/LSTM/GRU with sizes, K and batch per workload); methodology (clock divider, synthetic
+  clients, round measurement); Fig. 2 x-axis LR/NB/MLP/LSTM/GRU/Geomean; T_max = 2000 DRAM cycles.
+- Corrected (9 `% CHANGED:` comments): intro toggling/row-hit claim → measured training interference; 3 → 4 register
+  writes; Table I TRAIN preset = baseline + T_max age bound (lazy rule was worst); EGRESS cap "raised" → "unlimited";
+  starvation guard "every phase" → "every FL phase"; results sentence: removed ingress/egress shrink [A%]/[B%]/[T%].
+- Left as placeholders: X, Xmax, Y, Z, E and the Fig. 2 bars.
+- Open: final runs should use `phasched_egress_cap = 1000000` to match the text (runs so far used 64; egress is
+  link-bound so no effect expected).
+
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
 | # | Paper claim | Status | Evidence |

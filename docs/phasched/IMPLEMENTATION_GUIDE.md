@@ -1068,3 +1068,37 @@ config `ubench_FRFCFS.cfg`) and FRFCFS_Cap_10g (regression).
 3. BLISS_10g vs FRFCFS (10 G): TRAIN within ~1 % (single core thread → blacklisting has little to choose between).
 4. BLISS_1000g INGRESS core-read latency ≪ FRFCFS_1000g (277,820): the streaming DMA source gets blacklisted, so
    core reads are served early (compare with PhaSched 2,037). Use `dma.csv` for INGRESS/EGRESS transfer times.
+
+### Step 5 result
+- BLISS active: `nsrc=5 threshold=4 clear=10000`, blacklistings 97,111 (10 G) / 94,180 (1000 G). Regression
+  (FRFCFS_Cap_10g vs step6 golden) OK.
+- 10 G: BLISS bit-identical to FRFCFS (single core thread: all core requests come from one source, so blacklisting
+  cannot reorder anything; NIC phases link-bound).
+- 1000 G INGRESS: BLISS DMA W 2,777,502 cyc (same as all); starved core reads **277,764 clk — same as FR-FCFS**
+  (PhaSched 2,037). BLISS only reorders *within* the queue being served; the starvation comes from the write-drain
+  mode (reads sit in the read queue while the controller stays in write mode), which BLISS does not control.
+  → supports the paper's claim that thread-level fairness does not capture phase behaviour.
+
+---
+
+## Step 7 — Integrate the FL clients (generic part; details depend on the code)
+
+For each client (logistic regression, naive Bayes, DNN, LSTM, GRU):
+1. Build flags: `-I /DAMOV/phasched/include -I /DAMOV/simulator/misc/hooks` and `#include "phase_hint.h"`.
+2. Round loop:
+   ```c
+   zsim_roi_begin();                                       // once, before the first measured round
+   for (int r = 0; r < R; r++) {
+       fl_phase(FL_INGRESS); recv_model(...);  fl_dma_in(w, bytes);   // per weight array, or one flat buffer
+       fl_phase(FL_TRAIN);   local_train(...);
+       fl_phase(FL_EGRESS);  fl_dma_out(w, bytes); send_update(...);
+       fl_phase(FL_IDLE);
+   }
+   zsim_roi_end();
+   ```
+   `fl_dma_in/out` must cover the memory the training actually reads/writes (the weight arrays). If weights live in
+   several arrays, call `fl_dma_in/out` once per array.
+3. Server: native process outside ZSim (sockets) or a stub (`recv_model` = memcpy from a file) — stub preferred for
+   determinism.
+4. Threads = cores (4) if the client is multi-threaded.
+5. First: native timing of one round; then one ZSim round to measure speed → choose minibatches per round (K).

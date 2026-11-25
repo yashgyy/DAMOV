@@ -51,9 +51,9 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 | 2 | Phase interface (magic op → phase register) | ☑ | 2026-11-24 | + Step 2b: memory clock divider enabled |
 | 3 | Per-phase metrics CSV | ☑ | 2026-11-25 | + 3b real bus turnarounds |
 | 4 | PhaSched presets + starvation guard | ☑ | 2026-11-25 | IDLE exact; EGRESS −87 % turnarounds; INGRESS re-check with DMA |
-| 5 | BLISS baseline | ◐ | 2026-11-25 | instructions given |
+| 5 | BLISS baseline | ☑ | 2026-11-25 | works; cannot fix write-drain starvation |
 | 6 | DMA injector (NIC) | ☑ | 2026-11-25 | validated; 1000 G gain = artifact; QoS gain real |
-| 7 | FL workload integration + round sizing (K) | ☐ | | |
+| 7 | FL workload integration + round sizing (K) | ◐ | 2026-11-25 | waiting for client code details |
 | 8 | Experiment matrix runs | ☐ | | |
 | 9 | Analysis, energy, figures, paper | ☐ | | |
 
@@ -225,7 +225,10 @@ Template — copy for every step:
 ### Step 5 — BLISS  (2026-11-25, in progress)
 - Changes: Scheduler.h (BLISS state, on_served, is_black, real BLISS lambda), Controller.h (BLISS config keys,
   nsrc = cores + 1, on_served before erase, blacklistings print), DDR4-BLISS.cfg, ubench_BLISS_{10g,1000g}.cfg.
-- Result: _pending_
+- Results: blacklistings 97,111 / 94,180; regression OK. 10 G: identical to FR-FCFS (one core source).
+  1000 G INGRESS: core reads still starved 277,764 clk (= FR-FCFS) vs PhaSched 2,037 → BLISS cannot fix starvation
+  caused by write-drain mode (it only reorders within a queue). Supports paper claim 12.
+- Result: ✅ Step 5 done. Multi-core differences expected only with multi-threaded workloads (Step 7).
 
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
@@ -242,7 +245,7 @@ Template — copy for every step:
 | 9 | Ingress preset (eager, no cap) helps | ❌ | no gain NIC-only; mixed INGRESS +12.5 % worse; 100 G co-running reads 240 → 2,037 clk |
 | 10 | Train preset: lower read latency [Y%] | ❓ untested | ubench writes too few; needs DNN/LSTM/GRU |
 | 11 | Round time −[X%] vs FR-FCFS | ❓ not shown | ubench round TRAIN-dominated and unchanged |
-| 12 | BLISS gains only [Z%] | ❓ | BLISS not implemented (Step 5) |
+| 12 | BLISS gains only [Z%] / thread fairness ≠ phase behaviour | ✅ (partial) | BLISS ≡ FR-FCFS single-thread; does not fix INGRESS starvation (277,764 vs PhaSched 2,037 clk) |
 | 13 | DRAM energy change [E%] | ❓ | per-phase command counts available; energy model pending; NIC-only counts equal → ≈ 0 % |
 | 14 | Methodology: DAMOV-SIM + DMA injector + magic op, DDR4-2400, 10 GbE | ✅ | injector exact (32.2 M cyc); DDR4 timing fixed (Step 2b) |
 

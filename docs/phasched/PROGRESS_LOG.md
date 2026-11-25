@@ -52,7 +52,7 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 | 3 | Per-phase metrics CSV | ☑ | 2026-11-25 | + 3b real bus turnarounds |
 | 4 | PhaSched presets + starvation guard | ☑ | 2026-11-25 | IDLE exact; EGRESS −87 % turnarounds; INGRESS re-check with DMA |
 | 5 | BLISS baseline | ☐ | | |
-| 6 | DMA injector (NIC) | ◐ | 2026-11-25 | done before Step 5 |
+| 6 | DMA injector (NIC) | ☑ | 2026-11-25 | validated; 1000 G gain = artifact; QoS gain real |
 | 7 | FL workload integration + round sizing (K) | ☐ | | |
 | 8 | Experiment matrix runs | ☐ | | |
 | 9 | Analysis, energy, figures, paper | ☐ | | |
@@ -205,6 +205,17 @@ Template — copy for every step:
 - ⚠ Research finding: in NIC-only INGRESS/EGRESS there are almost no turnarounds (1–8) for any scheduler and the
   duration is link-bound up to ≥100 GbE → PhaSched can only help where NIC traffic overlaps core memory traffic.
   Evaluation scenario must be decided with the user (see chat 2026-11-25).
+- Step 6c (DMA timestamps): W transfer = 2,778,346 (FRFCFS) vs 2,777,730 (PhaSched) cycles at 1000 G; R identical
+  (2,770,594 both); 100 G: 3.22 M both. ⇒ ARTIFACT CONFIRMED: NIC transfer time is scheduler-independent; baseline's
+  extra INGRESS time is the starved core load counted after the DMA. Use dma.csv durations for INGRESS/EGRESS.
+- Positive results so far:
+  1. Starvation/QoS: DRAM-bound NIC transfer → FR-FCFS starves co-running reads ≈ 231 µs (277,820 clk);
+     PhaSched bounds to ≈ 1.7 µs (2,037 clk) = 136× lower worst-case read latency.
+  2. Mixed traffic in EGRESS (Step 4, CPU proxy): turnarounds −87 %, EGRESS time −4.9 %.
+  3. Zero cost when not in an FL phase (IDLE == FR-FCFS-Cap, verified).
+  4. Validated infrastructure: phase interface, per-phase metrics, NIC/DMA model for DAMOV.
+- Negative: no INGRESS/EGRESS shortening with NIC-only traffic at 10/100 GbE; at 100 G PhaSched raises co-running
+  read latency 240 → 2,037 clk (eager INGRESS rule holds write mode).
 
 ## 6. Results (fill in Step 9)
 

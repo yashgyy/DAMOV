@@ -960,3 +960,17 @@ PhaSched_1000g (guard fix), FRFCFS_Cap_100g, PhaSched_100g (realistic fast link)
 Rebuild ZSim only. Rerun FRFCFS_1000g, PhaSched_1000g, FRFCFS_Cap_100g, PhaSched_100g.
 **Check:** `cat ubench_<run>.dma.csv` — if the W transfer takes ≈ 2.78 M cycles under both FRFCFS and PhaSched at
 1000 G, the INGRESS difference is the core stall artifact, not DRAM throughput.
+
+### Step 6c result — artifact confirmed
+| run | DMA W (INGRESS) cycles | DMA R (EGRESS) cycles | INGRESS phase cycles | starved core-read avg (DRAM clk) |
+|---|---|---|---|---|
+| FRFCFS 1000 G | 2,778,346 | 2,770,594 | 5,556,000 | 277,820 |
+| PhaSched 1000 G | 2,777,730 | 2,770,594 | 2,778,000 | 2,037 |
+| FRFCFS_Cap 100 G | 3,221,964 | 3,221,420 | 3,222,000 | 240 |
+| PhaSched 100 G | 3,221,712 | 3,221,270 | 3,222,000 | 2,037 |
+- The NIC transfers take the same time under every scheduler → the 1000 G "−50 % INGRESS" is NOT a DRAM speed-up;
+  it is the core's starved load being added after the DMA (bound-weave). **Never report phase-stamp INGRESS time
+  from these runs; use `dma.csv` durations.**
+- Real, positive finding: at DRAM-bound transfer rates FR-FCFS starves co-running core reads for the entire transfer
+  (avg 277,820 DRAM clk ≈ 231 µs); PhaSched's guard bounds them to ≈ Tmax (2,037 clk ≈ 1.7 µs) → **136× lower**.
+  At link-bound rates (100 G) the eager rule costs latency (240 → 2,037 clk) → Tmax / INGRESS rule need tuning.

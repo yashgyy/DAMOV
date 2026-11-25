@@ -1127,3 +1127,32 @@ Config = copy of `ubench_FRFCFS_Cap_10g.cfg` with
 `env = "OMP_WAIT_POLICY=PASSIVE";` inside `process0 = { ... }`, stats `../phasched/results/fl_dnn_FRFCFS_Cap_10g`.
 ✅ completes; `dma.csv` W/R bytes = 25,264,168 (24.1 MB); INGRESS/EGRESS ≈ 25.26 MB / 1.25 GB/s ≈ 48.5 M cycles;
 TRAIN row has reads, writes (≈ 2 × 24 MB per step from G and W) and turnarounds; note wall-clock time.
+
+### Step 7 result (user machine)
+- Native: build OK, check=1 losses identical to reference build, sizes 38.1 / 38.1 / 24.1 / 14.1 / 10.5 MB.
+- First ZSim run `fl_dnn_FRFCFS_Cap_10g` (steps=2): wall **5 m 37 s**. DMA W/R = 25,264,192 B, 48.5 M cyc each.
+  TRAIN 446.2 M cyc, reads 4.53 M, **writes 2.34 M (34 %)**, **turnarounds 728,687**, core read latency
+  avg 146 / p50 68 / p99 689 DRAM clk (ubench: 55 / 53 / 125). Round = 543 M cyc (NIC 18 %, TRAIN 82 %).
+  → write interference during training is real: the case the TRAIN preset targets.
+
+---
+
+## Step 8 (start) — DNN under all 5 schedulers, 10 GbE
+
+Helper: `phasched/scripts/flsum.sh <prefix> <suffix>` → per scheduler: TRAIN cycles, TRAIN read latency
+avg/p50/p99, TRAIN turnarounds, DMA W/R cycles (dma.csv), round = W + TRAIN + R.
+```bash
+mkdir -p /DAMOV/phasched/scripts && cd /DAMOV/phasched/scripts && wget -O flsum.sh https://raw.githubusercontent.com/yashgyy/DAMOV/claude/charming-mayer-55xqty/phasched/scripts/flsum.sh && chmod +x flsum.sh
+cd /DAMOV/phasched/configs/zsim
+for s in FCFS FRFCFS BLISS PhaSched; do
+  sed -e "s#DDR4-FRFCFS_Cap.cfg#DDR4-$s.cfg#" -e "s#fl_dnn_FRFCFS_Cap_10g\"#fl_dnn_${s}_10g\"#" fl_dnn_FRFCFS_Cap_10g.cfg > fl_dnn_${s}_10g.cfg
+done
+cd /DAMOV/simulator
+for s in FCFS FRFCFS BLISS PhaSched; do
+  ./build/opt/zsim ../phasched/configs/zsim/fl_dnn_${s}_10g.cfg > ../phasched/results/fl_dnn_${s}_10g.log 2>&1 &
+done
+wait
+cd /DAMOV/phasched/results && ../scripts/flsum.sh fl_dnn _10g
+```
+✅ Look for: PhaSched TRAIN rd_avg / p99 / turn lower than FRFCFS(_Cap); round_cyc lower; FCFS slowest;
+BLISS now has 5 sources (4 threads + NIC).

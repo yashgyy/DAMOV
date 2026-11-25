@@ -53,8 +53,8 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 | 4 | PhaSched presets + starvation guard | ☑ | 2026-11-25 | IDLE exact; EGRESS −87 % turnarounds; INGRESS re-check with DMA |
 | 5 | BLISS baseline | ☑ | 2026-11-25 | works; cannot fix write-drain starvation |
 | 6 | DMA injector (NIC) | ☑ | 2026-11-25 | validated; 1000 G gain = artifact; QoS gain real |
-| 7 | FL workload integration + round sizing (K) | ◐ | 2026-11-25 | synthetic clients written + validated natively |
-| 8 | Experiment matrix runs | ☐ | | |
+| 7 | FL workload integration + round sizing (K) | ☑ | 2026-11-25 | synthetic clients; dnn sim 5.6 min; TRAIN write interference visible |
+| 8 | Experiment matrix runs | ◐ | 2026-11-25 | dnn × 5 schedulers @10 G running |
 | 9 | Analysis, energy, figures, paper | ☐ | | |
 
 Legend: ☐ not started · ◐ in progress · ☑ done and verified
@@ -259,7 +259,7 @@ Template — copy for every step:
 | 7 | Ingress/egress time shrinks [A%]/[B%] | ❌ NIC-only / ✅ small mixed | DMA time identical at 10/100/1000 G (dma.csv); mixed EGRESS −4.9 % |
 | 8 | Turnarounds drop [T%] | ✅ mixed only | EGRESS −87 % (CPU proxy); NIC-only nothing to drop |
 | 9 | Ingress preset (eager, no cap) helps | ❌ | no gain NIC-only; mixed INGRESS +12.5 % worse; 100 G co-running reads 240 → 2,037 clk |
-| 10 | Train preset: lower read latency [Y%] | ❓ untested | ubench writes too few; needs DNN/LSTM/GRU |
+| 10 | Train preset: lower read latency [Y%] | ❓ in progress | precondition confirmed: DNN TRAIN 34 % writes, 728 k turnarounds, read lat 146 (p99 689) vs 55 unloaded |
 | 11 | Round time −[X%] vs FR-FCFS | ❓ not shown | ubench round TRAIN-dominated and unchanged |
 | 12 | BLISS gains only [Z%] / thread fairness ≠ phase behaviour | ✅ (partial) | BLISS ≡ FR-FCFS single-thread; does not fix INGRESS starvation (277,764 vs PhaSched 2,037 clk) |
 | 13 | DRAM energy change [E%] | ❓ | per-phase command counts available; energy model pending; NIC-only counts equal → ≈ 0 % |

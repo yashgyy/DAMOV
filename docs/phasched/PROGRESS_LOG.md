@@ -55,7 +55,7 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 | 6 | DMA injector (NIC) | ☑ | 2026-11-25 | validated; 1000 G gain = artifact; QoS gain real |
 | 7 | FL workload integration + round sizing (K) | ☑ | 2026-11-25 | synthetic clients; dnn sim 5.6 min; TRAIN write interference visible |
 | 8 | Experiment matrix runs | ☑ | 2026-11-25 | 25 runs @10 G; PhaSched geo −0.3 %, max −1.1 % |
-| 9 | Analysis, energy, figures, paper | ◐ | 2026-11-25 | paper filled except energy [E%] |
+| 9 | Analysis, energy, figures, paper | ☑ | 2026-11-25 | all placeholders filled; compile + review pending |
 
 Legend: ☐ not started · ◐ in progress · ☑ done and verified
 
@@ -285,7 +285,9 @@ Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
 - Best baseline: FR-FCFS-Cap on LR/NB (≤ 0.01 % ahead of FR-FCFS), FR-FCFS on MLP/LSTM/GRU.
   PhaSched vs best baseline: LR −0.002 %, NB +0.009 % (noise level), MLP −1.13 %, LSTM −0.16 %, GRU −0.15 %.
 - Paper numbers: X = 0.3 % (geomean), Xmax = 1.1 % (MLP), Y = 1.0 % (geo, up to 2.8 % GRU), Z = BLISS +1.0 %,
-  Cap +0.6 %, FCFS +43 %. E pending (needs command counts).
+  Cap +0.6 %, FCFS +43 %.
+- Energy (phasched/scripts/energy.py, typical 4Gb x8 DDR4-2400 IDD): PhaSched/FR-FCFS 0.9999 / 1.0001 / 0.9884 /
+  0.9979 / 0.9979, geo 0.9968 → E = −0.3 % (up to −1.2 % MLP); ACT −10.8 % MLP, −2.2 % LSTM, −3.5 % GRU.
 - Honest assessment: consistent, never-worse, but small gains; largest on write-heavy dense training.
 
 ### Paper draft update  (2026-11-25)
@@ -297,7 +299,7 @@ Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
   writes; Table I TRAIN preset = baseline + T_max age bound (lazy rule was worst); EGRESS cap "raised" → "unlimited";
   starvation guard "every phase" → "every FL phase"; results sentence: removed ingress/egress shrink [A%]/[B%]/[T%].
 - Left as placeholders: X, Xmax, Y, Z, E and the Fig. 2 bars.
-- 2026-11-25: X, Xmax, Y, Z and Fig. 2 filled from Step 8d (Fig. 2 y-axis 0.97–1.04, stated in caption). Only E left.
+- 2026-11-25: X, Xmax, Y, Z and Fig. 2 filled from Step 8d (Fig. 2 y-axis 0.97–1.04, stated in caption). E filled (−0.3 %, up to −1.2 %). No placeholders left.
 - Open: final runs should use `phasched_egress_cap = 1000000` to match the text (runs so far used 64; egress is
   link-bound so no effect expected).
 
@@ -317,7 +319,7 @@ Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
 | 10 | Train preset: lower read latency [Y%] | ❌ lazy rule / ✅ small with guard | final preset: TRAIN avg read latency −1.0 % geo (up to −2.8 % GRU); MLP p50 −20 % |
 | 11 | Round time −[X%] vs FR-FCFS | ✅ small | geomean −0.3 %, max −1.1 % (MLP), never slower; gain from Tmax guard in TRAIN |
 | 12 | BLISS gains only [Z%] / thread fairness ≠ phase behaviour | ✅ | BLISS +1.0 % round (geo) vs FR-FCFS; does not fix INGRESS starvation |
-| 13 | DRAM energy change [E%] | ❓ | per-phase command counts available; energy model pending; NIC-only counts equal → ≈ 0 % |
+| 13 | DRAM energy change [E%] | ✅ small | −0.3 % geo, up to −1.2 % (MLP); MLP row activations −10.8 % |
 | 14 | Methodology: DAMOV-SIM + DMA injector + magic op, DDR4-2400, 10 GbE | ✅ | injector exact (32.2 M cyc); DDR4 timing fixed (Step 2b) |
 
 ## 6. Results (fill in Step 9)

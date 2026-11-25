@@ -217,6 +217,25 @@ Template — copy for every step:
 - Negative: no INGRESS/EGRESS shortening with NIC-only traffic at 10/100 GbE; at 100 G PhaSched raises co-running
   read latency 240 → 2,037 clk (eager INGRESS rule holds write mode).
 
+## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
+
+| # | Paper claim | Status | Evidence |
+|---|---|---|---|
+| 1 | Round has 3 distinct traffic patterns (ingress write burst, train read-dominated, egress read stream) | ✅ (model) | INGRESS 262,144 W / 5 R; EGRESS 262,144 DMA R; TRAIN 15.9 M R vs 1.04 M W (ubench) |
+| 2 | Mechanism: phase register + 4 presets, no per-thread state, hint writes per round | ✅ | implemented; 4 hint writes/round (IDLE at end is extra — can drop to 3) |
+| 3 | IDLE behaves exactly as baseline | ✅ | PhaSched no-hint vs FR-FCFS-Cap within ±0.02 % |
+| 4 | Starvation guard bounds delay of non-matching traffic | ✅ | starved core reads 277,820 → 2,037 DRAM clk (136×) at DRAM-bound NIC rate |
+| 5 | Baseline toggles R/W at wrong moments, many turnarounds in ingress/egress | ❌ NIC-only / ✅ mixed | NIC-only phases: 1–8 turnarounds for every scheduler; mixed (CPU-proxy) EGRESS 12,810 |
+| 6 | Baseline breaks row-hit streaks of sequential streams | ❌ | NIC phases ≈ 99 % row hits and equal ACT counts under all schedulers |
+| 7 | Ingress/egress time shrinks [A%]/[B%] | ❌ NIC-only / ✅ small mixed | DMA time identical at 10/100/1000 G (dma.csv); mixed EGRESS −4.9 % |
+| 8 | Turnarounds drop [T%] | ✅ mixed only | EGRESS −87 % (CPU proxy); NIC-only nothing to drop |
+| 9 | Ingress preset (eager, no cap) helps | ❌ | no gain NIC-only; mixed INGRESS +12.5 % worse; 100 G co-running reads 240 → 2,037 clk |
+| 10 | Train preset: lower read latency [Y%] | ❓ untested | ubench writes too few; needs DNN/LSTM/GRU |
+| 11 | Round time −[X%] vs FR-FCFS | ❓ not shown | ubench round TRAIN-dominated and unchanged |
+| 12 | BLISS gains only [Z%] | ❓ | BLISS not implemented (Step 5) |
+| 13 | DRAM energy change [E%] | ❓ | per-phase command counts available; energy model pending; NIC-only counts equal → ≈ 0 % |
+| 14 | Methodology: DAMOV-SIM + DMA injector + magic op, DDR4-2400, 10 GbE | ✅ | injector exact (32.2 M cyc); DDR4 timing fixed (Step 2b) |
+
 ## 6. Results (fill in Step 9)
 
 | Metric | Value |

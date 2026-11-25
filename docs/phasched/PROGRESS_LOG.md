@@ -311,8 +311,8 @@ Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
   kept as `paper/paper1_phase_aware_scheduling.5wl.tex`.
 - New numbers (geomean over MLP/LSTM/GRU): round PhaSched −0.48 % (0.9952), Cap +0.98 %, BLISS +1.29 %, FCFS +7.6 %;
   TRAIN read latency −1.7 % (0.9831); DRAM energy −0.5 % (0.9947). Max: −1.1 % round, −2.8 % latency, −1.2 % energy.
-- One sentence keeps LR/NB for transparency ("change by at most 0.02 %", link-dominated) — dropping them silently
-  would look like cherry-picking.
+- LR/NB transparency sentence removed at the user's request (2026-11-25). LR/NB results remain in this log
+  (round 0.9998 / 1.0000 vs FR-FCFS) and in `paper1_phase_aware_scheduling.5wl.tex`.
 
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 

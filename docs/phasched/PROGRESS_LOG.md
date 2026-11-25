@@ -194,7 +194,17 @@ Template — copy for every step:
   6.75 GB/s vs PhaSched 14.5 GB/s (76 % of peak). Baseline starves the 5 INGRESS core reads (avg 297,850 DRAM clk);
   PhaSched 9,415 (guard flips back too early → bug).
   TRAIN identical across all runs (1,885.7 M) → ubench round time is TRAIN-dominated.
-- Result: ✅ injector works. Next: Step 6b (guard fix + attribution FRFCFS/FCFS @1000 G + 100 GbE runs).
+- Result: ✅ injector works.
+- Step 6b (guard holds mode until starved request served): starved INGRESS reads now ≈ 2,039 clk (≈ Tmax) ✅; 10 G unchanged.
+  1000 G INGRESS: FCFS 6.645 M, FRFCFS_Cap 5.957 M, FRFCFS 5.555 M, PhaSched 2.778 M (cap explains only ~7 %).
+  100 G: INGRESS = EGRESS = 3.222 M for FRFCFS_Cap AND PhaSched (link-bound; baseline not DRAM-bound after all).
+  PhaSched raises co-running core read latency at 100 G (INGRESS 198 → 2,037 clk, EGRESS 64.8 → 94.5).
+- ⚠ Interpretation: baseline 1000 G INGRESS ≈ exactly 2 × PhaSched; the 5 starved core reads (5 × 277,766 DRAM clk ≈
+  2.78 M CPU cyc) equal the difference → suspected ZSim bound-weave artifact (poll magic op evaluated in bound phase;
+  load stall added serially). Step 6c logs DMA start/end to verify.
+- ⚠ Research finding: in NIC-only INGRESS/EGRESS there are almost no turnarounds (1–8) for any scheduler and the
+  duration is link-bound up to ≥100 GbE → PhaSched can only help where NIC traffic overlaps core memory traffic.
+  Evaluation scenario must be decided with the user (see chat 2026-11-25).
 
 ## 6. Results (fill in Step 9)
 

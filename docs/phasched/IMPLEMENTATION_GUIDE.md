@@ -919,3 +919,44 @@ PhaSched_1000g (guard fix), FRFCFS_Cap_100g, PhaSched_100g (realistic fast link)
 3. FRFCFS_1000g vs FRFCFS_Cap_1000g INGRESS → shows how much of the gain is the lifted cap.
 4. 100 GbE: expected INGRESS ≈ 16 MiB / 12.5 GB/s = 1.34 ms = 3.22 M cycles for PhaSched; baseline slower
    (DRAM-bound at ~6.75 GB/s → ~5.96 M).
+
+### Step 6b result
+| run | INGRESS cyc | INGRESS core-rd avg | EGRESS cyc | EGRESS core-rd avg |
+|---|---|---|---|---|
+| FCFS 1000 G | 6,645,000 | 332,299 | 6,631,000 | 58.3 |
+| FRFCFS_Cap 1000 G (6) | 5,957,000 | 297,850 | 5,940,000 | 55.6 |
+| FRFCFS 1000 G | 5,555,000 | 277,766 | 5,543,000 | 57.4 |
+| PhaSched 1000 G | 2,778,000 | 2,039 | 5,542,000 | 51.8 |
+| FRFCFS_Cap 100 G | 3,222,000 | 198 | 3,222,000 | 64.8 |
+| PhaSched 100 G | 3,222,000 | 2,037 | 3,222,000 | 94.5 |
+| PhaSched 10 G | 32,213,000 | 26.8 | 32,213,000 | 53.3 |
+- Guard fixed: starved reads now served at ≈ Tmax (2,039 clk). 10 G unchanged ✅.
+- 100 GbE: INGRESS/EGRESS = 3.22 M for both (link-bound, as predicted for PhaSched — baseline is NOT DRAM-bound).
+  PhaSched raises latency of the few co-running core reads (INGRESS 198 → 2,037; EGRESS 64.8 → 94.5).
+- 1000 G: baseline INGRESS ≈ exactly 2 × PhaSched (5,555,000 vs 2,778,000). Baseline starves 5 core reads for the whole
+  DMA; 5 × 277,766 DRAM clk ≈ 2.78 M CPU cycles = the difference. Suspected **ZSim bound-weave artifact**: the poll
+  magic op runs in the bound phase and keeps the core "busy" while the starved load's delay is added afterwards, so
+  stall and DMA are counted serially instead of overlapping. Verify with DMA timestamps (Step 6c).
+- Turnarounds in DMA-only phases are tiny for every scheduler (1–8) → there is nothing to toggle against.
+
+## Step 6c — DMA timestamps (verify the 1000 G result)
+`ramulator_mem_ctrl.h` (private): `std::ofstream* dmaLog = nullptr; uint64_t dmaStartAddr = 0, dmaStartCycle = 0;`
+`ramulator_mem_ctrl.cpp`:
+- constructor (next to phaseLog):
+  ```cpp
+  dmaLog = new std::ofstream(application_name + ".dma.csv");
+  *dmaLog << "dir,bytes,start_cycle,end_cycle\n";
+  ```
+- injector start block: after `dmaActive = true; dmaPending = false;` add `dmaStartAddr = dmaReqAddr; dmaStartCycle = curCycle;`
+- replace `if (dmaNext >= dmaEnd && dmaOutstanding == 0) dmaActive = false;` with
+  ```cpp
+    if (dmaNext >= dmaEnd && dmaOutstanding == 0) {
+      dmaActive = false;
+      *dmaLog << (dmaWrite ? "W" : "R") << "," << (dmaEnd - dmaStartAddr) << ","
+              << dmaStartCycle << "," << curCycle << "\n";
+      dmaLog->flush();
+    }
+  ```
+Rebuild ZSim only. Rerun FRFCFS_1000g, PhaSched_1000g, FRFCFS_Cap_100g, PhaSched_100g.
+**Check:** `cat ubench_<run>.dma.csv` — if the W transfer takes ≈ 2.78 M cycles under both FRFCFS and PhaSched at
+1000 G, the INGRESS difference is the core stall artifact, not DRAM throughput.

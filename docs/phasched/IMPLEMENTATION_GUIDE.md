@@ -587,3 +587,144 @@ Clean-rebuild Ramulator, rebuild ZSim, run base.
 1. Every phase: `turn ≤ 2 × min(rd, wrc)` (a switch needs a write between reads).
 2. TRAIN turnarounds now in the order of the write count (≈ 1–2.3 M), not 20.9 M.
 3. All other columns and `cmp.sh` vs step2b unchanged (OK).
+
+### Step 3b result
+Turnarounds: INGRESS 10,719 · TRAIN 2,173,619 · EGRESS 12,636 — all ≤ 2 × min(rd, wr) ✅. Other columns unchanged,
+cmp.sh vs step2b OK. Per-phase reference saved: `golden/step3.phases.csv`.
+
+---
+
+## Step 4 — PhaSched: per-phase presets + starvation guard
+
+**Goal:** implement Paper Table I. PhaSched = FR-FCFS-Cap whose write-drain rule and row-hit cap depend on the phase.
+IDLE behaves exactly like FR-FCFS-Cap (0.8 / 0.2, cap 16).
+
+| Phase | Enter write mode | Leave write mode | Row-hit cap |
+|---|---|---|---|
+| 0 IDLE | baseline: wq ≥ Whi or rq = 0 | baseline: wq ≤ Wlo and rq > 0 | 16 |
+| 1 INGRESS (eager) | wq > 0 | wq = 0 | unlimited |
+| 2 TRAIN (lazy) | wq ≥ Whi (*forced*) or (rq = 0 and wq > 0) (*idle*) | forced: wq ≤ Wlo and rq > 0 · idle: as soon as rq > 0 · always: wq = 0 | 16 |
+| 3 EGRESS | only wq ≥ Whi | wq ≤ Wlo | 64 |
+
+Starvation guard (phases 1–3 only, so IDLE stays identical to baseline): if the oldest request of the queue being
+served waited > Tmax DRAM clocks, it is served next; if the oldest request of the *other* queue waited > Tmax, switch
+mode. Defaults: Tmax = 2000 DRAM clk (≈ 1.7 µs), egress cap = 64.
+
+### 4.1 `/DAMOV/simulator/ramulator/Scheduler.h`
+a) Enum: `FCFS, FRFCFS, FRFCFS_Cap, FRFCFS_PriorHit, MAX` →
+   `FCFS, FRFCFS, FRFCFS_Cap, FRFCFS_PriorHit, BLISS, PhaSched, MAX`
+b) In `compare[]`, after the last lambda (`// FRFCFS_PriorHit` … `return req2;}`) add a comma and two lambdas
+   (order must match the enum):
+```cpp
+        // BLISS (placeholder = FRFCFS until Step 5)
+        [this] (ReqIter req1, ReqIter req2) {
+            bool ready1 = this->ctrl->is_ready(req1);
+            bool ready2 = this->ctrl->is_ready(req2);
+            if (ready1 ^ ready2) { if (ready1) return req1; return req2; }
+            if (req1->arrive <= req2->arrive) return req1;
+            return req2;},
+        // PhaSched: FR-FCFS with per-phase row-hit cap
+        [this] (ReqIter req1, ReqIter req2) {
+            long c = this->ctrl->phase_cap();
+            bool ready1 = this->ctrl->is_ready(req1) && this->ctrl->rowtable->get_hits(req1->addr_vec) <= c;
+            bool ready2 = this->ctrl->is_ready(req2) && this->ctrl->rowtable->get_hits(req2->addr_vec) <= c;
+            if (ready1 ^ ready2) { if (ready1) return req1; return req2; }
+            if (req1->arrive <= req2->arrive) return req1;
+            return req2;}
+```
+c) In `get_head`, as the very first statement:
+```cpp
+      // PhaSched starvation guard (FL phases only; queue is in arrival order)
+      if (type == Type::PhaSched && this->ctrl->phase != 0 && q.size() &&
+          this->ctrl->clk - q.begin()->arrive > this->ctrl->tmax)
+        return q.begin();
+```
+
+### 4.2 `/DAMOV/simulator/ramulator/Controller.h`
+a) `#include <climits>` at the top.
+b) Members next to `wq_high / wq_low`:
+```cpp
+    long tmax = 2000;          // PhaSched starvation guard (DRAM clk)
+    long egress_cap = 64;      // PhaSched row-hit cap in EGRESS
+    bool forced_drain = false; // PhaSched TRAIN: write mode entered because of Whi
+    long phase_cap() {
+        if (phase == 1) return LONG_MAX;     // INGRESS: unlimited
+        if (phase == 3) return egress_cap;   // EGRESS: raised
+        return scheduler->cap;               // IDLE, TRAIN: baseline
+    }
+```
+c) Constructor, Step 1 block: add `else if (sched == "PhaSched") scheduler->type = Scheduler<T>::Type::PhaSched;`
+   before the final `else`, and after the other config keys:
+```cpp
+        if (configs["phasched_tmax"]       != "") tmax       = stol(configs["phasched_tmax"]);
+        if (configs["phasched_egress_cap"] != "") egress_cap = stol(configs["phasched_egress_cap"]);
+        if (sched == "PhaSched") printf("[PHASCHED] tmax=%ld egress_cap=%ld\n", tmax, egress_cap);
+```
+d) New member function (e.g. just before `dump_phase`):
+```cpp
+    void update_write_mode() {
+        int wq = writeq.size(), rq = readq.size();
+        int hi = int(wq_high * writeq.max), lo = int(wq_low * writeq.max);
+        bool phs = (scheduler->type == Scheduler<T>::Type::PhaSched);
+        if (!phs || phase == 0) {                                  // baseline FR-FCFS write drain
+            if (!write_mode) { if (wq >= hi || rq == 0) write_mode = true; }
+            else             { if (wq <= lo && rq != 0) write_mode = false; }
+            return;
+        }
+        // starvation guard across queues
+        if (write_mode && rq > 0 && clk - readq.q.front().arrive > tmax) { write_mode = false; return; }
+        if (!write_mode && wq > 0 && clk - writeq.q.front().arrive > tmax) { write_mode = true; forced_drain = true; return; }
+        if (phase == 1) {                                          // INGRESS: eager
+            if (!write_mode) { if (wq > 0) write_mode = true; }
+            else             { if (wq == 0) write_mode = false; }
+        } else if (phase == 2) {                                   // TRAIN: lazy
+            if (!write_mode) {
+                if (wq >= hi)                { write_mode = true; forced_drain = true; }
+                else if (rq == 0 && wq > 0)  { write_mode = true; forced_drain = false; }
+            } else {
+                bool leave = forced_drain ? (wq <= lo && rq != 0) : (rq != 0);
+                if (leave || wq == 0) write_mode = false;
+            }
+        } else {                                                   // EGRESS: only at Whi
+            if (!write_mode) { if (wq >= hi) write_mode = true; }
+            else             { if (wq <= lo) write_mode = false; }
+        }
+    }
+```
+e) In `tick()`, replace the whole `/*** 3. Should we schedule writes? ***/` if/else block with `update_write_mode();`
+
+### 4.3 Configs + no-hint test binary
+```bash
+cd /DAMOV/phasched/configs/ramulator
+cp DDR4-FRFCFS_Cap.cfg DDR4-PhaSched.cfg
+sed -i 's/scheduler = FRFCFS_Cap/scheduler = PhaSched/' DDR4-PhaSched.cfg
+printf " phasched_tmax = 2000\n phasched_egress_cap = 64\n" >> DDR4-PhaSched.cfg
+cd /DAMOV/phasched/configs/zsim
+sed -e "s#DDR4-FRFCFS_Cap.cfg#DDR4-PhaSched.cfg#" -e "s#ubench_FRFCFS_Cap\"#ubench_PhaSched\"#" ubench_FRFCFS_Cap.cfg > ubench_PhaSched.cfg
+sed -e "s#ubench_PhaSched\"#ubench_PhaSched_nohint\"#" -e "s#ubench/ubench 16#ubench/ubench_nohint 16#" ubench_PhaSched.cfg > ubench_PhaSched_nohint.cfg
+grep -E "stats|command|ramulatorConfig" ubench_PhaSched.cfg ubench_PhaSched_nohint.cfg
+cd /DAMOV && gcc -O2 -DPHASCHED_NO_HINTS -I phasched/include -I simulator/misc/hooks phasched/ubench/ubench.c -o phasched/ubench/ubench_nohint
+chown -R 1037:1041 /DAMOV/phasched
+```
+
+### 4.4 Rebuild + 4 runs in parallel
+```bash
+cd /DAMOV/simulator/ramulator && make clean && make libramulator.so
+cd /DAMOV/simulator && sh scripts/compile.sh z
+cd /DAMOV/simulator
+for c in base_ooo4_ddr4 ubench_FRFCFS_Cap ubench_PhaSched ubench_PhaSched_nohint; do
+  ./build/opt/zsim ../phasched/configs/zsim/$c.cfg > ../phasched/results/$c.log 2>&1 &
+done
+wait
+```
+
+### ✅ Checks
+1. `grep PHASCHED ../phasched/results/ubench_PhaSched.log` → `scheduler=PhaSched cap=16 …` and `tmax=2000 egress_cap=64`.
+2. **Regression A:** `cmp.sh golden/step2b ubench_base` → all OK (other schedulers untouched).
+3. **Regression B (key test):** `cmp.sh ubench_FRFCFS_Cap ubench_PhaSched_nohint` → all OK
+   (PhaSched in IDLE == FR-FCFS-Cap).
+4. **Effect:** `phasum.sh` on `ubench_FRFCFS_Cap.phases.csv` and `ubench_PhaSched.phases.csv`, compare per phase:
+   INGRESS turnarounds ↓; TRAIN avg/P99 read latency ↓ or equal; EGRESS turnarounds ↓, row hits ↑ or equal.
+   Note: ubench still uses the CPU as "NIC" (INGRESS mixes RFO reads with writes), so effects here are only a
+   sanity check — the real INGRESS/EGRESS effect comes after the DMA injector (Step 6).
+5. No deadlock: all 4 logs end with `All children done`.

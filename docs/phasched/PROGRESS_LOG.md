@@ -49,8 +49,8 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 | 0 | Baseline + ubench + golden output | ☑ | 2026-11-24 | golden saved, deterministic |
 | 1 | Config knobs (scheduler, queue, Whi/Wlo, cap) | ☑ | 2026-11-24 | + Ramulator get_hits bug fixed |
 | 2 | Phase interface (magic op → phase register) | ☑ | 2026-11-24 | + Step 2b: memory clock divider enabled |
-| 3 | Per-phase metrics CSV | ◐ | 2026-11-24 | instructions given |
-| 4 | PhaSched presets + starvation guard | ☐ | | |
+| 3 | Per-phase metrics CSV | ☑ | 2026-11-25 | + 3b real bus turnarounds |
+| 4 | PhaSched presets + starvation guard | ◐ | 2026-11-25 | instructions given |
 | 5 | BLISS baseline | ☐ | | |
 | 6 | DMA injector (NIC) | ☐ | | |
 | 7 | FL workload integration + round sizing (K) | ☐ | | |
@@ -151,7 +151,19 @@ Template — copy for every step:
   TRAIN 1886 M cyc (15.9 M reads, 1.17 M writes, avg 55.1, p99 128); EGRESS 4.05 M cyc (262 k reads, avg 35, p99 123).
 - Issue: turnarounds counted write_mode flips (20.9 M in TRAIN) — baseline enters write mode whenever readq is
   empty, even with no writes. Fix (Step 3b): count real RD↔WR direction changes of column commands in issue_cmd.
-- Result: ✅ metrics correct except turnarounds → Step 3b in progress.
+- Step 3b: turnarounds now = RD↔WR direction changes of column commands (issue_cmd). INGRESS 10,719,
+  TRAIN 2,173,619, EGRESS 12,636 (all ≤ 2·min(rd,wr)); other columns unchanged; cmp vs step2b OK.
+- Result: ✅ Step 3 done. Reference `golden/step3.phases.csv`.
+
+### Step 4 — PhaSched presets + starvation guard  (2026-11-25, in progress)
+- Design: PhaSched = FR-FCFS-Cap + per-phase write drain + per-phase cap; IDLE == FR-FCFS-Cap exactly.
+  INGRESS eager (wq>0 → write; leave at wq=0; cap ∞). TRAIN lazy (enter at Whi [forced] or idle reads; idle-entered
+  drain leaves as soon as a read arrives; forced drain leaves at Wlo). EGRESS writes only at Whi, cap 64.
+  Starvation guard Tmax = 2000 DRAM clk, active only in phases 1–3.
+- Changes: Scheduler.h (enum BLISS/PhaSched, 2 compare lambdas, guard in get_head), Controller.h (tmax, egress_cap,
+  forced_drain, phase_cap(), update_write_mode()), configs DDR4-PhaSched.cfg, ubench_PhaSched[_nohint].cfg,
+  ubench_nohint binary (-DPHASCHED_NO_HINTS).
+- Result: _pending_
 
 ## 6. Results (fill in Step 9)
 

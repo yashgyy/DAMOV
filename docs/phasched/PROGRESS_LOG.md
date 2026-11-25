@@ -53,7 +53,7 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 | 4 | PhaSched presets + starvation guard | ☑ | 2026-11-25 | IDLE exact; EGRESS −87 % turnarounds; INGRESS re-check with DMA |
 | 5 | BLISS baseline | ☑ | 2026-11-25 | works; cannot fix write-drain starvation |
 | 6 | DMA injector (NIC) | ☑ | 2026-11-25 | validated; 1000 G gain = artifact; QoS gain real |
-| 7 | FL workload integration + round sizing (K) | ◐ | 2026-11-25 | waiting for client code details |
+| 7 | FL workload integration + round sizing (K) | ◐ | 2026-11-25 | synthetic clients written + validated natively |
 | 8 | Experiment matrix runs | ☐ | | |
 | 9 | Analysis, energy, figures, paper | ☐ | | |
 
@@ -229,6 +229,15 @@ Template — copy for every step:
   1000 G INGRESS: core reads still starved 277,764 clk (= FR-FCFS) vs PhaSched 2,037 → BLISS cannot fix starvation
   caused by write-drain mode (it only reorders within a queue). Supports paper claim 12.
 - Result: ✅ Step 5 done. Multi-core differences expected only with multi-threaded workloads (Step 7).
+
+### Step 7 — Synthetic FedAvg clients  (2026-11-25, in progress)
+- Decision: the user's FL code cannot be used → synthetic clients with real training kernels on generated data:
+  `phasched/workloads/fl_clients.cpp` (logreg, nb, dnn, lstm, gru; OpenMP; one contiguous model buffer for the NIC).
+- Sizes: logreg/nb 10 M params (38.1 MB), dnn 6.3 M (24.1 MB + grads), lstm 3.7 M (14.1 MB + grads),
+  gru 2.8 M (10.5 MB + grads); 256 MB synthetic local data per client.
+- Validation (native): loss decreases (check=1); gradient check analytic ≈ numeric (check=2) for dnn/lstm/gru.
+- Native TRAIN, 4 steps, 4 threads: logreg 1.7 ms, nb 0.6 ms, dnn 286 ms, lstm 1047 ms, gru 817 ms.
+- Result: _pending (ZSim speed test)_
 
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 

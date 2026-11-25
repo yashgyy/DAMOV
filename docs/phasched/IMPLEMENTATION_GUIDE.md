@@ -1081,24 +1081,49 @@ config `ubench_FRFCFS.cfg`) and FRFCFS_Cap_10g (regression).
 
 ---
 
-## Step 7 — Integrate the FL clients (generic part; details depend on the code)
+## Step 7 — Synthetic FedAvg clients (replaces the user's FL code)
 
-For each client (logistic regression, naive Bayes, DNN, LSTM, GRU):
-1. Build flags: `-I /DAMOV/phasched/include -I /DAMOV/simulator/misc/hooks` and `#include "phase_hint.h"`.
-2. Round loop:
-   ```c
-   zsim_roi_begin();                                       // once, before the first measured round
-   for (int r = 0; r < R; r++) {
-       fl_phase(FL_INGRESS); recv_model(...);  fl_dma_in(w, bytes);   // per weight array, or one flat buffer
-       fl_phase(FL_TRAIN);   local_train(...);
-       fl_phase(FL_EGRESS);  fl_dma_out(w, bytes); send_update(...);
-       fl_phase(FL_IDLE);
-   }
-   zsim_roi_end();
-   ```
-   `fl_dma_in/out` must cover the memory the training actually reads/writes (the weight arrays). If weights live in
-   several arrays, call `fl_dma_in/out` once per array.
-3. Server: native process outside ZSim (sockets) or a stub (`recv_model` = memcpy from a file) — stub preferred for
-   determinism.
-4. Threads = cores (4) if the client is multi-threaded.
-5. First: native timing of one round; then one ZSim round to measure speed → choose minibatches per round (K).
+The user's FL code cannot be used, so the clients are synthetic but **real training code** (forward + backward,
+gradient-checked) on generated data: `phasched/workloads/fl_clients.cpp` (one binary, `model=` selects the client).
+Each round: `fl_phase(INGRESS)` → `fl_dma_in(W)` → `fl_phase(TRAIN)` → K minibatches → `fl_phase(EGRESS)` →
+`fl_dma_out(W)` → `fl_phase(IDLE)`. All parameters are one contiguous buffer `W` (what the NIC transfers); dense
+models also have a gradient buffer `G` (zeroed each step, SGD `W -= lr·G`). OpenMP, `threads=` (default 4).
+
+| model | what TRAIN does (memory behaviour) | default size | params / model MB |
+|---|---|---|---|
+| logreg | sparse softmax regression, hogwild SGD: gather + scatter read-modify-write of random W rows | feat=1M, classes=10, nnz=64, batch=512 | 10.0 M / 38.1 |
+| nb | multinomial naive Bayes: scattered count increments | same | 10.0 M / 38.1 |
+| dnn | MLP 1024-2048-2048-10, ReLU, softmax-CE: dense GEMMs, writes all of G and W every step | batch=32 | 6.3 M / 24.1 (+24.1 grads) |
+| lstm | 2-layer LSTM, in=256, hidden=512, seq=16, full BPTT, G accumulated every timestep | batch=8 | 3.7 M / 14.1 (+14.1) |
+| gru | 2-layer GRU, same shapes | batch=8 | 2.8 M / 10.5 (+10.5) |
+
+Local data: synthetic, `data_mb=256` per client (≫ 8 MB L3, so TRAIN streams data from DRAM).
+
+Validation (done natively, 2026-11-25): `check=1` → loss drops on a repeated minibatch for logreg/dnn/lstm/gru;
+`check=2 lr=0 threads=1` → analytic gradients match numeric gradients (dnn, lstm, gru).
+Native TRAIN time for 4 steps (4 threads): logreg 1.7 ms, nb 0.6 ms, dnn 286 ms, lstm 1047 ms, gru 817 ms.
+
+### 7.1 Get the files into the container
+On the host (VS Code side), if `/home/phase_aware/DAMOV` is a git clone of `yashgyy/DAMOV`:
+```bash
+cd /home/phase_aware/DAMOV && git fetch origin claude/charming-mayer-55xqty
+git checkout origin/claude/charming-mayer-55xqty -- phasched/workloads/fl_clients.cpp
+```
+Otherwise copy `phasched/workloads/fl_clients.cpp` from the branch on GitHub into `/DAMOV/phasched/workloads/`.
+
+### 7.2 Build + native checks (inside the container)
+```bash
+cd /DAMOV/phasched/workloads
+g++ -O3 -std=c++11 -fopenmp -I../include -I../../simulator/misc/hooks fl_clients.cpp -o fl_client
+for m in logreg dnn lstm gru; do ./fl_client model=$m check=1 data_mb=16 feat=100000 in=128 h1=256 h2=256 hidden=64 seq=8 lr=0.05 | tail -2; done
+for m in dnn lstm gru; do ./fl_client model=$m check=2 lr=0 threads=1 data_mb=4 in=32 h1=24 h2=16 hidden=12 seq=5 batch=4 | tail -3; done
+for m in logreg nb dnn lstm gru; do ./fl_client model=$m steps=4 | grep -E "params|round"; done
+```
+✅ loss decreases; analytic ≈ numeric; sizes as in the table.
+
+### 7.3 First ZSim run (speed + sanity): dnn, FRFCFS_Cap, 10 GbE, steps=2
+Config = copy of `ubench_FRFCFS_Cap_10g.cfg` with
+`command = "/DAMOV/phasched/workloads/fl_client model=dnn rounds=1 steps=2 threads=4";`,
+`env = "OMP_WAIT_POLICY=PASSIVE";` inside `process0 = { ... }`, stats `../phasched/results/fl_dnn_FRFCFS_Cap_10g`.
+✅ completes; `dma.csv` W/R bytes = 25,264,168 (24.1 MB); INGRESS/EGRESS ≈ 25.26 MB / 1.25 GB/s ≈ 48.5 M cycles;
+TRAIN row has reads, writes (≈ 2 × 24 MB per step from G and W) and turnarounds; note wall-clock time.

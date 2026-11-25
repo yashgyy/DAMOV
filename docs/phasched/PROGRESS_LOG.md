@@ -54,7 +54,7 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 | 5 | BLISS baseline | ☑ | 2026-11-25 | works; cannot fix write-drain starvation |
 | 6 | DMA injector (NIC) | ☑ | 2026-11-25 | validated; 1000 G gain = artifact; QoS gain real |
 | 7 | FL workload integration + round sizing (K) | ☑ | 2026-11-25 | synthetic clients; dnn sim 5.6 min; TRAIN write interference visible |
-| 8 | Experiment matrix runs | ◐ | 2026-11-25 | dnn × 5 schedulers @10 G running |
+| 8 | Experiment matrix runs | ◐ | 2026-11-25 | DNN tuned (final preset −1.13 %); main matrix running |
 | 9 | Analysis, energy, figures, paper | ☐ | | |
 
 Legend: ☐ not started · ◐ in progress · ☑ done and verified
@@ -263,6 +263,17 @@ Template — copy for every step:
   guard acting in TRAIN (age-based write drain), not the drain presets. Lazy rule = worst.
 - First positive round-time result for PhaSched (−1.1 %), modest; attribution: Tmax guard.
 - Next: Tmax sweep on t1_capinf (500/1000/4000/8000) to pick the final preset, then full matrix.
+
+### Step 8c — Tmax sweep, DNN @ 10 G  (2026-11-25)
+- Round vs FRFCFS: Tmax 500 +1.59 %, 1000 −1.00 %, **2000 −1.13 %**, 4000 −0.73 %, 8000 −0.67 % → robust over 1000–8000.
+- Decision: final preset `PhaSched_final` = cap ∞ base, TRAIN baseline drain (train_mode 1), Tmax 2000,
+  INGRESS eager, EGRESS Whi-only cap 64.
+- Steps per round for the matrix: logreg 64, nb 128, dnn 2, lstm 1, gru 1 (TRAIN ≈ 50–150 ms native).
+- Open item (credibility): phase-agnostic control "FR-FCFS + Tmax guard in all phases" to show what part of the
+  gain needs the phase hint.
+
+### Step 8d — Main matrix 5 workloads × 5 schedulers @ 10 G  (2026-11-25, running)
+- Result: _pending_
 
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 

@@ -1220,3 +1220,41 @@ Configs (4 variants): t0_capinf, t1_capinf, t2_capinf, t1_cap16 (regression: mus
 - Best: t1_capinf, round −1.13 %, TRAIN −1.37 %, read latency avg −1.9 %, p50 −20 % (75 → 60).
 - Caveat for the paper: the guard is phase-independent in principle; a reviewer can ask for "FR-FCFS + age guard".
 - Config check: `[PHASCHED] tmax=2000 egress_cap=64 train_mode=1` and `cap=1000000` in t1_capinf log ✅ (an earlier grep simply printed nothing).
+
+### Step 8c result — Tmax sweep (t1_capinf = baseline drain in TRAIN, no cap), DNN @ 10 G
+| Tmax (DRAM clk) | TRAIN cyc | rd avg | p50 | p99 | turn | round | vs FRFCFS |
+|---|---|---|---|---|---|---|---|
+| FRFCFS | 441,998,000 | 129.5 | 75 | 582 | 788,541 | 539,012,304 | — |
+| 500 | 450,589,000 | 157.4 | 76 | 650 | 881,033 | 547,603,368 | +1.59 % |
+| 1000 | 436,622,000 | 128.8 | 67 | 600 | 794,889 | 533,636,304 | −1.00 % |
+| **2000** | **435,932,000** | **127.0** | **60** | 592 | 806,527 | **532,946,304** | **−1.13 %** |
+| 4000 | 438,060,000 | 128.5 | 65 | 601 | 780,824 | 535,074,368 | −0.73 % |
+| 8000 | 438,409,000 | 129.9 | 75 | 590 | 826,355 | 535,423,368 | −0.67 % |
+- Gain is robust for Tmax 1000–8000 (−0.67 … −1.13 %); too small a Tmax (500) forces too many switches (+1.6 %).
+- **Final PhaSched preset = `PhaSched_final`**: base cap ∞ (FR-FCFS), INGRESS eager/cap ∞, TRAIN baseline drain,
+  EGRESS Whi-only/cap 64, Tmax 2000 (= `DDR4-PhaSched_t1_capinf.cfg`).
+
+## Step 8d — Main matrix: 5 workloads × 5 schedulers @ 10 GbE
+Steps per round chosen so TRAIN takes ≈ 50–150 ms natively (≈ the dnn steps=2 run):
+logreg 64, nb 128, dnn 2, lstm 1, gru 1.
+```bash
+cd /DAMOV/phasched/configs/ramulator && cp DDR4-PhaSched_t1_capinf.cfg DDR4-PhaSched_final.cfg
+cd /DAMOV/phasched/configs/zsim
+for w in "logreg 64" "nb 128" "lstm 1" "gru 1"; do set -- $w; m=$1; k=$2
+  for s in FCFS FRFCFS FRFCFS_Cap BLISS PhaSched_final; do
+    sed -e "s#DDR4-FRFCFS_Cap.cfg#DDR4-$s.cfg#" \
+        -e "s#model=dnn rounds=1 steps=2#model=$m rounds=1 steps=$k#" \
+        -e "s#fl_dnn_FRFCFS_Cap_10g\"#fl_${m}_${s}_10g\"#" fl_dnn_FRFCFS_Cap_10g.cfg > fl_${m}_${s}_10g.cfg
+  done
+done
+cd /DAMOV/phasched/results
+for e in phases.csv dma.csv ramulator.stats; do cp fl_dnn_PhaSched_t1_capinf_10g.$e fl_dnn_PhaSched_final_10g.$e; done
+cd /DAMOV/simulator
+nohup sh -c 'for m in logreg nb lstm gru; do for s in FCFS FRFCFS FRFCFS_Cap BLISS PhaSched_final; do echo fl_${m}_${s}_10g; done; done | xargs -P 4 -I{} sh -c "./build/opt/zsim ../phasched/configs/zsim/{}.cfg > ../phasched/results/{}.log 2>&1"' > /DAMOV/phasched/results/matrix_10g.log 2>&1 &
+```
+Progress: `ls /DAMOV/phasched/results/fl_*_10g.dma.csv | wc -l` (25 when done, incl. the 5 dnn).
+Summary:
+```bash
+cd /DAMOV/phasched/results
+for m in logreg nb dnn lstm gru; do echo "== $m"; ../scripts/flsum.sh fl_$m _10g "FCFS FRFCFS FRFCFS_Cap BLISS PhaSched_final"; done
+```

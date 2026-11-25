@@ -237,7 +237,10 @@ Template — copy for every step:
   gru 2.8 M (10.5 MB + grads); 256 MB synthetic local data per client.
 - Validation (native): loss decreases (check=1); gradient check analytic ≈ numeric (check=2) for dnn/lstm/gru.
 - Native TRAIN, 4 steps, 4 threads: logreg 1.7 ms, nb 0.6 ms, dnn 286 ms, lstm 1047 ms, gru 817 ms.
-- Result: _pending (ZSim speed test)_
+- User machine (container), 2026-11-25: built OK; check=1 loss decreases for logreg/dnn/lstm/gru (identical values
+  to the reference build); sizes as expected. Native TRAIN 4 steps: logreg 3.3 ms, nb 1.6 ms, dnn 241 ms,
+  lstm 591 ms, gru 456 ms.
+- Result: _pending (ZSim speed test, dnn FRFCFS_Cap 10 G steps=2)_
 
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 

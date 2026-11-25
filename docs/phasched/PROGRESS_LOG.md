@@ -163,6 +163,8 @@ Template — copy for every step:
 - Changes: Scheduler.h (enum BLISS/PhaSched, 2 compare lambdas, guard in get_head), Controller.h (tmax, egress_cap,
   forced_drain, phase_cap(), update_write_mode()), configs DDR4-PhaSched.cfg, ubench_PhaSched[_nohint].cfg,
   ubench_nohint binary (-DPHASCHED_NO_HINTS).
+- Build error: `Controller<HMC> has no member named 'phase_cap' / 'phase' / 'tmax'` — DAMOV's HMC controller is a
+  separate specialization that instantiates Scheduler<HMC>. Fix: add stub members to HMC_Controller.h (guide 4.2f).
 - Result: _pending_
 
 ## 6. Results (fill in Step 9)

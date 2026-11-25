@@ -693,6 +693,16 @@ d) New member function (e.g. just before `dump_phase`):
 ```
 e) In `tick()`, replace the whole `/*** 3. Should we schedule writes? ***/` if/else block with `update_write_mode();`
 
+### 4.2f HMC controller stub (needed to compile)
+DAMOV has a separate `Controller<HMC>` (`ramulator/HMC_Controller.h`) that also uses `Scheduler<T>`, so it needs the
+members the scheduler now reads. Below `bool write_mode = false;` (~line 174) in `HMC_Controller.h` add:
+```cpp
+    int phase = 0;                                  // PhaSched stubs (HMC not used by PhaSched)
+    long tmax = 2000;
+    long phase_cap() { return scheduler->cap; }
+```
+Build error without it: `'class ramulator::Controller<ramulator::HMC>' has no member named 'phase_cap'`.
+
 ### 4.3 Configs + no-hint test binary
 ```bash
 cd /DAMOV/phasched/configs/ramulator

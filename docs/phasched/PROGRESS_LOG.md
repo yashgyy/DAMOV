@@ -314,6 +314,11 @@ Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
 - LR/NB transparency sentence removed at the user's request (2026-11-25). LR/NB results remain in this log
   (round 0.9998 / 1.0000 vs FR-FCFS) and in `paper1_phase_aware_scheduling.5wl.tex`.
 
+### Paper: methodology additions removed  (2026-11-25, user decision)
+- Removed from Sec. III: clock-divider sentence, synthetic-client description, round-measurement sentence.
+- Consequence: the paper no longer states that the clients use synthetic data / one round of K minibatches, or that
+  ingress/egress are timed from the DMA injector (Table II still lists K and batch sizes).
+
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
 | # | Paper claim | Status | Evidence |

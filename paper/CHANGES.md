@@ -53,13 +53,9 @@ recorded in `docs/phasched/PROGRESS_LOG.md`. All `% CHANGED` / `% FILLED` lines 
   Now: "In every FL phase a request that has waited longer than T_max is served next, and the controller switches to
   its queue if needed. This bounds… We use T_max = 2000 DRAM cycles (1.7 µs)."
 
-## 8. Sec. III Methodology (text added; original sentences kept)
-Inserted after "…forwards the phase to the Ramulator controller.":
-"We enable DAMOV-SIM's memory-clock divider so that DDR4-2400 runs at 1.2 GHz against the 2.4 GHz cores.
-Workloads: DAMOV contains no FL client, so we implement three dense-model synthetic FedAvg clients (MLP, LSTM, GRU)
-in C++/OpenMP with real forward and backward passes on synthetic local data (256 MB per client); all parameters are
-kept in one buffer that the DMA injector transfers. Each run simulates one round with K local minibatches; ingress and
-egress times are taken from the DMA injector."
+## 8. Sec. III Methodology
+Unchanged from the original (2026-11-25: the added sentences on the clock divider, synthetic clients and round
+measurement were removed at the user's request).
 
 ## 9. Table II (configuration)
 | Row | Was | Now |

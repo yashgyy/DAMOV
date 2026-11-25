@@ -240,7 +240,11 @@ Template — copy for every step:
 - User machine (container), 2026-11-25: built OK; check=1 loss decreases for logreg/dnn/lstm/gru (identical values
   to the reference build); sizes as expected. Native TRAIN 4 steps: logreg 3.3 ms, nb 1.6 ms, dnn 241 ms,
   lstm 591 ms, gru 456 ms.
-- Result: _pending (ZSim speed test, dnn FRFCFS_Cap 10 G steps=2)_
+- First ZSim run (dnn, FRFCFS_Cap, 10 G, steps=2): wall 5 m 37 s. DMA W/R 25,264,192 B, 48.5 M cyc each ✅.
+  TRAIN 446.2 M cyc: 4.53 M reads, **2.34 M writes** (34 % of traffic), **728,687 turnarounds**, core read latency
+  avg 146 / p50 68 / p99 689 DRAM clk (vs 55 in the read-only ubench) → reads wait behind gradient/weight writes:
+  exactly the situation the TRAIN preset targets. Round = 48.5 + 446.2 + 48.5 = 543 M cyc (NIC 18 %).
+- Next: dnn × 5 schedulers @ 10 G; helper `phasched/scripts/flsum.sh`.
 
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 

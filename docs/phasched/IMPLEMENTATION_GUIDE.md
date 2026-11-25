@@ -884,3 +884,38 @@ Test configs: copies of `ubench_FRFCFS_Cap.cfg` / `ubench_PhaSched.cfg` with `dm
 3. 1000 Gbps: INGRESS/EGRESS DRAM-bound, ≥ 16 MiB / 19.2 GB/s = 0.87 ms ≈ **2.1 M cycles** (expect ~2.5–4 M).
 4. No hang (all logs end with `All children done`); native `./phasched/ubench/ubench 16 64 1` still runs.
 5. PhaSched vs FRFCFS_Cap at both rates: per-phase cycles, turnarounds, row hits.
+
+### Step 6 result (ubench, 16 MiB model)
+| | INGRESS cycles | EGRESS cycles | INGRESS core-read avg lat (5 reads) |
+|---|---|---|---|
+| FRFCFS_Cap 10 GbE | 32,213,000 | 32,213,000 | 26.8 |
+| PhaSched 10 GbE | 32,213,000 (identical) | 32,213,000 (identical) | 26.8 |
+| FRFCFS_Cap 1000 Gbps | 5,957,000 | 5,940,000 | **297,850** (reads starved) |
+| PhaSched 1000 Gbps | **2,779,000 (−53 %)** | **5,542,000 (−6.7 %)** | 9,415 |
+- Injector validated: 10 GbE INGRESS/EGRESS = 32.2 M cycles exactly as predicted; 262,144 DMA writes / reads.
+- 10 GbE: PhaSched ≡ FRFCFS_Cap → link-bound, scheduler cannot help (risk confirmed).
+- 1000 Gbps: baseline reaches only 16 MiB / 5.96 M cyc = 6.75 GB/s for a pure write stream; PhaSched 14.5 GB/s
+  (76 % of 19.2 GB/s peak). → at 100 GbE (12.5 GB/s) the baseline is DRAM-bound but PhaSched is not.
+- Bug: PhaSched's starvation guard does not hold read mode — in INGRESS the eager rule flips back to write mode one
+  cycle later, so a starved read (needs PRE/ACT/RD) still waits ~9 k clk instead of ~Tmax.
+
+## Step 6b — Fix starvation guard + attribution runs
+`Controller.h`, `update_write_mode()`: replace the two "starvation guard across queues" lines with
+```cpp
+        // starvation guard across queues: hold the mode until the starved request is served
+        bool rstarve = rq > 0 && clk - readq.q.front().arrive > tmax;
+        bool wstarve = wq > 0 && clk - writeq.q.front().arrive > tmax;
+        if (rstarve) { write_mode = false; return; }
+        if (wstarve) { write_mode = true; forced_drain = true; return; }
+```
+Clean-rebuild Ramulator + ZSim.
+
+Runs (6 in parallel): FRFCFS_1000g, FCFS_1000g (attribution: is the INGRESS gain from the cap or the drain rule?),
+PhaSched_1000g (guard fix), FRFCFS_Cap_100g, PhaSched_100g (realistic fast link), PhaSched_10g (regression).
+
+### ✅ Checks
+1. PhaSched_1000g INGRESS core-read avg latency ≈ Tmax range (≤ ~2,100 clk), INGRESS cycles still ≈ 2.8 M.
+2. PhaSched_10g identical to before (32.2 M / 32.2 M).
+3. FRFCFS_1000g vs FRFCFS_Cap_1000g INGRESS → shows how much of the gain is the lifted cap.
+4. 100 GbE: expected INGRESS ≈ 16 MiB / 12.5 GB/s = 1.34 ms = 3.22 M cycles for PhaSched; baseline slower
+   (DRAM-bound at ~6.75 GB/s → ~5.96 M).

@@ -187,7 +187,14 @@ Template — copy for every step:
 ### Step 6 — DMA injector  (2026-11-25, in progress)
 - Changes: phase_hint.h (ops 1041–1043, poll loop), zsim.cpp (3 cases), ramulator_mem_ctrl.{h,cpp} (injector in tick,
   callback, setDmaLink), init.cpp (`sys.mem.dmaLinkGbps`, default 10).
-- Result: _pending_
+- Results (ubench 16 MiB):
+  10 GbE: INGRESS = EGRESS = 32,213,000 cyc (predicted 32.2 M ✅), 262,144 DMA writes / reads ✅;
+  PhaSched bit-identical to FRFCFS_Cap → link-bound, risk CONFIRMED.
+  1000 Gbps: INGRESS 5.957 M → 2.779 M (−53 %), EGRESS 5.940 M → 5.542 M (−6.7 %). Baseline write stream only
+  6.75 GB/s vs PhaSched 14.5 GB/s (76 % of peak). Baseline starves the 5 INGRESS core reads (avg 297,850 DRAM clk);
+  PhaSched 9,415 (guard flips back too early → bug).
+  TRAIN identical across all runs (1,885.7 M) → ubench round time is TRAIN-dominated.
+- Result: ✅ injector works. Next: Step 6b (guard fix + attribution FRFCFS/FCFS @1000 G + 100 GbE runs).
 
 ## 6. Results (fill in Step 9)
 

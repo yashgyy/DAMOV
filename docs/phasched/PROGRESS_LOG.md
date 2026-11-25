@@ -246,6 +246,16 @@ Template — copy for every step:
   exactly the situation the TRAIN preset targets. Round = 48.5 + 446.2 + 48.5 = 543 M cyc (NIC 18 %).
 - Next: dnn × 5 schedulers @ 10 G; helper `phasched/scripts/flsum.sh`.
 
+### Step 8 — first matrix: DNN × 5 schedulers @ 10 G, steps=2  (2026-11-25)
+- Round (CPU cyc): FCFS 569.5 M (+5.7 %), FRFCFS 539.0 M (best), FRFCFS_Cap 543.3 M (+0.8 %), BLISS 555.2 M (+3.0 %),
+  PhaSched 545.0 M (+1.1 %).
+- TRAIN read latency avg/p99: FCFS 261/1018, FRFCFS 129.5/582, Cap 146.2/689, BLISS 137.2/628, PhaSched 144.3/690.
+- Turnarounds: FCFS 819 k, FRFCFS 789 k, Cap 729 k, BLISS 586 k, PhaSched 804 k.
+- Findings: (+) DNN TRAIN is scheduling-sensitive (FCFS→FRFCFS −5.4 % round, −50 % latency) → room exists.
+  (−) PhaSched as in Table I ≈ FR-FCFS-Cap, not better than FR-FCFS: lazy TRAIN drain adds turnarounds (+10 %
+  vs Cap); Cap-16 base costs ≈ 0.8 %.
+- Next: Step 8b TRAIN preset sweep (train_mode 0/1/2, base cap 16 vs ∞).
+
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
 | # | Paper claim | Status | Evidence |
@@ -259,8 +269,8 @@ Template — copy for every step:
 | 7 | Ingress/egress time shrinks [A%]/[B%] | ❌ NIC-only / ✅ small mixed | DMA time identical at 10/100/1000 G (dma.csv); mixed EGRESS −4.9 % |
 | 8 | Turnarounds drop [T%] | ✅ mixed only | EGRESS −87 % (CPU proxy); NIC-only nothing to drop |
 | 9 | Ingress preset (eager, no cap) helps | ❌ | no gain NIC-only; mixed INGRESS +12.5 % worse; 100 G co-running reads 240 → 2,037 clk |
-| 10 | Train preset: lower read latency [Y%] | ❓ in progress | precondition confirmed: DNN TRAIN 34 % writes, 728 k turnarounds, read lat 146 (p99 689) vs 55 unloaded |
-| 11 | Round time −[X%] vs FR-FCFS | ❓ not shown | ubench round TRAIN-dominated and unchanged |
+| 10 | Train preset: lower read latency [Y%] | ❌ as specified (lazy) / ❓ sweep | DNN: PhaSched 144.3 vs FRFCFS 129.5 avg lat; lazy drain adds turnarounds; sweeping drain modes (Step 8b) |
+| 11 | Round time −[X%] vs FR-FCFS | ❌ so far (DNN +1.1 %) / ❓ sweep | FCFS +5.7 %, BLISS +3.0 %, Cap +0.8 %, PhaSched +1.1 % vs FRFCFS |
 | 12 | BLISS gains only [Z%] / thread fairness ≠ phase behaviour | ✅ (partial) | BLISS ≡ FR-FCFS single-thread; does not fix INGRESS starvation (277,764 vs PhaSched 2,037 clk) |
 | 13 | DRAM energy change [E%] | ❓ | per-phase command counts available; energy model pending; NIC-only counts equal → ≈ 0 % |
 | 14 | Methodology: DAMOV-SIM + DMA injector + magic op, DDR4-2400, 10 GbE | ✅ | injector exact (32.2 M cyc); DDR4 timing fixed (Step 2b) |

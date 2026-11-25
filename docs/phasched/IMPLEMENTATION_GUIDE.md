@@ -1156,3 +1156,49 @@ cd /DAMOV/phasched/results && ../scripts/flsum.sh fl_dnn _10g
 ```
 ✅ Look for: PhaSched TRAIN rd_avg / p99 / turn lower than FRFCFS(_Cap); round_cyc lower; FCFS slowest;
 BLISS now has 5 sources (4 threads + NIC).
+
+### Step 8 result — DNN, 10 GbE, steps=2 (round = DMA W + TRAIN + DMA R, CPU cycles)
+| sched | TRAIN cyc | rd avg | p50 | p99 | turnarounds | round | vs FRFCFS |
+|---|---|---|---|---|---|---|---|
+| FCFS | 472,492,000 | 261.0 | 175 | 1018 | 819,460 | 569,506,304 | +5.7 % |
+| FRFCFS | 441,998,000 | 129.5 | 75 | 582 | 788,541 | 539,012,304 | — |
+| FRFCFS_Cap | 446,239,000 | 146.2 | 68 | 689 | 728,687 | 543,253,304 | +0.8 % |
+| BLISS | 458,209,000 | 137.2 | 86 | 628 | 586,074 | 555,223,368 | +3.0 % |
+| PhaSched | 447,936,000 | 144.3 | 68 | 690 | 803,939 | 544,950,796 | +1.1 % |
+- Scheduling matters in DNN TRAIN (FCFS → FRFCFS: −5.4 % round, −50 % read latency).
+- PhaSched as specified (FR-FCFS-Cap base + lazy TRAIN drain) ≈ FR-FCFS-Cap; does **not** beat FR-FCFS.
+  The lazy rule *adds* turnarounds (728,687 → 803,939: short write bursts, each paying tWTR); the cap 16 base costs
+  ≈ 0.8 % vs FR-FCFS.
+
+## Step 8b — TRAIN preset sweep
+New knob `phasched_train_mode`: 0 = lazy (paper Table I), 1 = baseline drain, 2 = full drain (enter at Whi or idle,
+leave only when the write queue is empty → few long write bursts). Base cap set via `row_hit_cap` (1000000 = ∞,
+i.e. PhaSched on top of plain FR-FCFS).
+
+`Controller.h`:
+1. Member next to `egress_cap`: `long train_mode = 0;  // PhaSched TRAIN drain: 0 lazy, 1 baseline, 2 full drain`
+2. Constructor, after the `phasched_egress_cap` line:
+   `if (configs["phasched_train_mode"] != "") train_mode = stol(configs["phasched_train_mode"]);`
+   and change the PhaSched printf to `printf("[PHASCHED] tmax=%ld egress_cap=%ld train_mode=%ld\n", tmax, egress_cap, train_mode);`
+3. `update_write_mode()`: replace the whole `} else if (phase == 2) { ... }` block with
+```cpp
+        } else if (phase == 2) {                                   // TRAIN
+            if (train_mode == 1) {                                 // baseline drain
+                if (!write_mode) { if (wq >= hi || rq == 0) write_mode = true; }
+                else             { if (wq <= lo && rq != 0) write_mode = false; }
+            } else if (train_mode == 2) {                          // full drain: few, long write bursts
+                if (!write_mode) { if (wq >= hi || (rq == 0 && wq > 0)) write_mode = true; }
+                else             { if (wq == 0) write_mode = false; }
+            } else {                                               // 0: lazy (paper Table I)
+                if (!write_mode) {
+                    if (wq >= hi)                { write_mode = true; forced_drain = true; }
+                    else if (rq == 0 && wq > 0)  { write_mode = true; forced_drain = false; }
+                } else {
+                    bool leave = forced_drain ? (wq <= lo && rq != 0) : (rq != 0);
+                    if (leave || wq == 0) write_mode = false;
+                }
+            }
+        } else {                                                   // EGRESS: only at Whi
+```
+Configs (4 variants): t0_capinf, t1_capinf, t2_capinf, t1_cap16 (regression: must ≈ FRFCFS_Cap TRAIN; t1_capinf ≈ FRFCFS).
+`flsum.sh` now takes an optional quoted list of names as 3rd argument.

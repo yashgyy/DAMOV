@@ -54,8 +54,8 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 | 5 | BLISS baseline | ☑ | 2026-11-25 | works; cannot fix write-drain starvation |
 | 6 | DMA injector (NIC) | ☑ | 2026-11-25 | validated; 1000 G gain = artifact; QoS gain real |
 | 7 | FL workload integration + round sizing (K) | ☑ | 2026-11-25 | synthetic clients; dnn sim 5.6 min; TRAIN write interference visible |
-| 8 | Experiment matrix runs | ◐ | 2026-11-25 | DNN tuned (final preset −1.13 %); main matrix running |
-| 9 | Analysis, energy, figures, paper | ☐ | | |
+| 8 | Experiment matrix runs | ☑ | 2026-11-25 | 25 runs @10 G; PhaSched geo −0.3 %, max −1.1 % |
+| 9 | Analysis, energy, figures, paper | ◐ | 2026-11-25 | paper filled except energy [E%] |
 
 Legend: ☐ not started · ◐ in progress · ☑ done and verified
 
@@ -272,8 +272,21 @@ Template — copy for every step:
 - Open item (credibility): phase-agnostic control "FR-FCFS + Tmax guard in all phases" to show what part of the
   gain needs the phase hint.
 
-### Step 8d — Main matrix 5 workloads × 5 schedulers @ 10 G  (2026-11-25, running)
-- Result: _pending_
+### Step 8d — Main matrix 5 workloads × 5 schedulers @ 10 G  (2026-11-25, done)
+Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
+| | LR | NB | MLP | LSTM | GRU | geomean |
+|---|---|---|---|---|---|---|
+| FCFS | 1.9219 | 2.5021 | 1.0566 | 1.1077 | 1.0647 | 1.4306 |
+| FR-FCFS-Cap | 0.9999 | 0.9999 | 1.0079 | 1.0120 | 1.0094 | 1.0058 |
+| BLISS | 1.0077 | 1.0044 | 1.0301 | 1.0042 | 1.0047 | 1.0101 |
+| PhaSched_final | 0.9998 | 1.0000 | 0.9887 | 0.9984 | 0.9985 | **0.9971** |
+- TRAIN avg read latency PhaSched/FR-FCFS: 0.9993 / 0.9997 / 0.9807 / 0.9971 / 0.9717 (geo 0.9896).
+- NIC share of the FR-FCFS round: LR 61.6 %, NB 57.8 %, MLP 18.0 %, LSTM 7.4 %, GRU 8.2 %.
+- Best baseline: FR-FCFS-Cap on LR/NB (≤ 0.01 % ahead of FR-FCFS), FR-FCFS on MLP/LSTM/GRU.
+  PhaSched vs best baseline: LR −0.002 %, NB +0.009 % (noise level), MLP −1.13 %, LSTM −0.16 %, GRU −0.15 %.
+- Paper numbers: X = 0.3 % (geomean), Xmax = 1.1 % (MLP), Y = 1.0 % (geo, up to 2.8 % GRU), Z = BLISS +1.0 %,
+  Cap +0.6 %, FCFS +43 %. E pending (needs command counts).
+- Honest assessment: consistent, never-worse, but small gains; largest on write-heavy dense training.
 
 ### Paper draft update  (2026-11-25)
 - `paper/paper1_phase_aware_scheduling.tex` (original kept as `.orig.tex`, `.bbl` copied).
@@ -284,6 +297,7 @@ Template — copy for every step:
   writes; Table I TRAIN preset = baseline + T_max age bound (lazy rule was worst); EGRESS cap "raised" → "unlimited";
   starvation guard "every phase" → "every FL phase"; results sentence: removed ingress/egress shrink [A%]/[B%]/[T%].
 - Left as placeholders: X, Xmax, Y, Z, E and the Fig. 2 bars.
+- 2026-11-25: X, Xmax, Y, Z and Fig. 2 filled from Step 8d (Fig. 2 y-axis 0.97–1.04, stated in caption). Only E left.
 - Open: final runs should use `phasched_egress_cap = 1000000` to match the text (runs so far used 64; egress is
   link-bound so no effect expected).
 
@@ -300,9 +314,9 @@ Template — copy for every step:
 | 7 | Ingress/egress time shrinks [A%]/[B%] | ❌ NIC-only / ✅ small mixed | DMA time identical at 10/100/1000 G (dma.csv); mixed EGRESS −4.9 % |
 | 8 | Turnarounds drop [T%] | ✅ mixed only | EGRESS −87 % (CPU proxy); NIC-only nothing to drop |
 | 9 | Ingress preset (eager, no cap) helps | ❌ | no gain NIC-only; mixed INGRESS +12.5 % worse; 100 G co-running reads 240 → 2,037 clk |
-| 10 | Train preset: lower read latency [Y%] | ❌ lazy rule / ✅ small with guard | lazy: 129.8 vs 129.5; t1_capinf (baseline drain + Tmax guard): avg −1.9 %, p50 −20 % |
-| 11 | Round time −[X%] vs FR-FCFS | ✅ small (DNN −1.1 %, best preset) | t1_capinf −1.13 %; paper preset +1.1 %; gain from Tmax guard in TRAIN |
-| 12 | BLISS gains only [Z%] / thread fairness ≠ phase behaviour | ✅ (partial) | BLISS ≡ FR-FCFS single-thread; does not fix INGRESS starvation (277,764 vs PhaSched 2,037 clk) |
+| 10 | Train preset: lower read latency [Y%] | ❌ lazy rule / ✅ small with guard | final preset: TRAIN avg read latency −1.0 % geo (up to −2.8 % GRU); MLP p50 −20 % |
+| 11 | Round time −[X%] vs FR-FCFS | ✅ small | geomean −0.3 %, max −1.1 % (MLP), never slower; gain from Tmax guard in TRAIN |
+| 12 | BLISS gains only [Z%] / thread fairness ≠ phase behaviour | ✅ | BLISS +1.0 % round (geo) vs FR-FCFS; does not fix INGRESS starvation |
 | 13 | DRAM energy change [E%] | ❓ | per-phase command counts available; energy model pending; NIC-only counts equal → ≈ 0 % |
 | 14 | Methodology: DAMOV-SIM + DMA injector + magic op, DDR4-2400, 10 GbE | ✅ | injector exact (32.2 M cyc); DDR4 timing fixed (Step 2b) |
 

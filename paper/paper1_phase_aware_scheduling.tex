@@ -17,7 +17,7 @@
 \maketitle
 
 \begin{abstract}
-The main-memory traffic of a federated learning (FL) client follows the round structure of the protocol: the network interface writes the global model into DRAM, the cores read and update it during local training, and the network interface reads the update back out. Existing memory schedulers are unaware of these phases and apply a single policy throughout. We propose \name{}, which exposes a 2-bit round-phase register to the memory controller and uses it to select among lightweight presets of an FR-FCFS scheduler. \name{} needs no per-thread state. Evaluated in DAMOV-SIM on five FL client workloads, it reduces round time by \tbd{X\%} and average read latency by \tbd{Y\%} over FR-FCFS.
+The main-memory traffic of a federated learning (FL) client follows the round structure of the protocol: the network interface writes the global model into DRAM, the cores read and update it during local training, and the network interface reads the update back out. Existing memory schedulers are unaware of these phases and apply a single policy throughout. We propose \name{}, which exposes a 2-bit round-phase register to the memory controller and uses it to select among lightweight presets of an FR-FCFS scheduler. \name{} needs no per-thread state. Evaluated in DAMOV-SIM on five FL client workloads, it reduces round time by 0.3\% on average (up to 1.1\%) and average training read latency by 1.0\% (up to 2.8\%) over FR-FCFS, and never lengthens a round.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -152,7 +152,11 @@ Round & one round; $K$=64/128/2/1/1 minibatches of \\
 \end{table}
 
 \section{Preliminary Results}
-Fig.~\ref{fig:results} reports round time normalised to FR-FCFS. \name{} shortens the round by \tbd{X\%} on average (up to \tbd{X\textsubscript{max}\%}). At 10\,GbE, ingress and egress are bounded by the link and take the same time under every scheduler; the gain comes from training, where average read latency falls by \tbd{Y\%}. BLISS changes round time by \tbd{Z\%}, confirming that thread-level fairness does not capture phase behaviour. DRAM energy changes by \tbd{E\%}.
+Fig.~\ref{fig:results} reports round time normalised to FR-FCFS. \name{} shortens the round by 0.3\% on average (geometric mean) and by up to 1.1\% (MLP), and is never slower than FR-FCFS. At 10\,GbE, ingress and egress are bounded by the link and take the same time under every scheduler; they account for 58--62\% of the LR and NB rounds, whose sparse updates leave little for the scheduler to improve (${\le}0.02\%$). The gain comes from training in the dense clients (MLP, LSTM, GRU), where average read latency falls by 1.0\% on average and by up to 2.8\% (GRU), and the median read latency of the MLP drops by 20\%. Scheduling matters on these clients: FCFS lengthens the round by 43\% on average. The row-hit cap costs 0.6\%, and BLISS lengthens the round by 1.0\%, confirming that thread-level fairness does not capture phase behaviour. DRAM energy changes by \tbd{E\%}.
+% FILLED 2026-11-25 from the 10 GbE matrix (round = DMA-in + TRAIN + DMA-out, CPU cycles, normalised to FR-FCFS):
+%   FR-FCFS-Cap 0.9999/0.9999/1.0079/1.0120/1.0094 geo 1.0058; BLISS 1.0077/1.0044/1.0301/1.0042/1.0047 geo 1.0101;
+%   PhaSched 0.9998/1.0000/0.9887/0.9984/0.9985 geo 0.9971; FCFS geo 1.4306.
+%   TRAIN avg read latency PhaSched/FR-FCFS: 0.9993/0.9997/0.9807/0.9971/0.9717 geo 0.9896; MLP p50 75 -> 60.
 % CHANGED: removed "Ingress and egress shrink by [A%] and [B%] because bus turnarounds drop by [T%]".
 % Measured: NIC transfer time is identical for all schedulers at 10/100/1000 Gbps (DMA timestamps); NIC-only
 % phases have almost no turnarounds. [A%], [B%], [T%] are therefore not reported.
@@ -160,21 +164,20 @@ Fig.~\ref{fig:results} reports round time normalised to FR-FCFS. \name{} shorten
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[ybar,width=\columnwidth,height=3.3cm,ymin=0,ymax=1.2,
+\begin{axis}[ybar,width=\columnwidth,height=3.3cm,ymin=0.97,ymax=1.04,ytick={0.97,0.98,0.99,1.00,1.01,1.02,1.03,1.04},yticklabel style={/pgf/number format/fixed,/pgf/number format/precision=2},
   ylabel={Norm. round time},ylabel style={font=\scriptsize},
   symbolic x coords={LR,NB,MLP,LSTM,GRU,Geomean},xtick=data,
   tick label style={font=\scriptsize},enlarge x limits=0.12,bar width=3pt,
   legend style={font=\tiny,at={(0.5,1.03)},anchor=south,legend columns=4,draw=none}]
-% Replace the zeros with measured values (normalised to FR-FCFS).
-\addplot coordinates {(LR,0) (NB,0) (MLP,0) (LSTM,0) (GRU,0) (Geomean,0)};
-\addplot coordinates {(LR,0) (NB,0) (MLP,0) (LSTM,0) (GRU,0) (Geomean,0)};
-\addplot coordinates {(LR,0) (NB,0) (MLP,0) (LSTM,0) (GRU,0) (Geomean,0)};
-\addplot coordinates {(LR,0) (NB,0) (MLP,0) (LSTM,0) (GRU,0) (Geomean,0)};
+% Measured values, normalised to FR-FCFS (10 GbE, one round).
+\addplot coordinates {(LR,1) (NB,1) (MLP,1) (LSTM,1) (GRU,1) (Geomean,1)};
+\addplot coordinates {(LR,0.9999) (NB,0.9999) (MLP,1.0079) (LSTM,1.0120) (GRU,1.0094) (Geomean,1.0058)};
+\addplot coordinates {(LR,1.0077) (NB,1.0044) (MLP,1.0301) (LSTM,1.0042) (GRU,1.0047) (Geomean,1.0101)};
+\addplot coordinates {(LR,0.9998) (NB,1.0000) (MLP,0.9887) (LSTM,0.9984) (GRU,0.9985) (Geomean,0.9971)};
 \legend{FR-FCFS,FR-FCFS-Cap,BLISS,\name{}}
-\node[red,font=\footnotesize\bfseries] at (rel axis cs:0.5,0.5) {[RESULTS TO BE INSERTED]};
 \end{axis}
 \end{tikzpicture}
-\caption{Round time normalised to FR-FCFS (lower is better).}
+\caption{Round time normalised to FR-FCFS (lower is better; y-axis starts at 0.97).}
 \label{fig:results}
 \end{figure}
 

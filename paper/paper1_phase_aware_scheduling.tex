@@ -17,7 +17,7 @@
 \maketitle
 
 \begin{abstract}
-The main-memory traffic of a federated learning (FL) client follows the round structure of the protocol: the network interface writes the global model into DRAM, the cores read and update it during local training, and the network interface reads the update back out. Existing memory schedulers are unaware of these phases and apply a single policy throughout. We propose \name{}, which exposes a 2-bit round-phase register to the memory controller and uses it to select among lightweight presets of an FR-FCFS scheduler. \name{} needs no per-thread state. Evaluated in DAMOV-SIM on five FL client workloads, it reduces round time by 0.3\% on average (up to 1.1\%) and average training read latency by 1.0\% (up to 2.8\%) over FR-FCFS, and never lengthens a round.
+The main-memory traffic of a federated learning (FL) client follows the round structure of the protocol: the network interface writes the global model into DRAM, the cores read and update it during local training, and the network interface reads the update back out. Existing memory schedulers are unaware of these phases and apply a single policy throughout. We propose \name{}, which exposes a 2-bit round-phase register to the memory controller and uses it to select among lightweight presets of an FR-FCFS scheduler. \name{} needs no per-thread state. Evaluated in DAMOV-SIM on three dense-model FL clients, it reduces round time by 0.5\% on average (up to 1.1\%) and average training read latency by 1.7\% (up to 2.8\%) over FR-FCFS, and never lengthens a round.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -129,7 +129,7 @@ Phase & Write drain & Row-hit cap $C$ & Intent \\
 \name{} adds a 2-bit register, a four-entry table of watermark and cap values, and multiplexers on three existing comparators: fewer than 100 bits of state. Unlike ATLAS, TCM or BLISS it keeps no per-thread counters and performs no ranking.
 
 \section{Evaluation Methodology}
-We implement \name{} in DAMOV-SIM~\cite{damov}, which couples ZSim~\cite{zsim} with Ramulator~\cite{ramulator}. \emph{Network model:} DAMOV-SIM has no NIC. We add a DMA injector at the ZSim--Ramulator boundary that issues cache-bypassing write (ingress) and read (egress) requests over the model buffer at the configured link rate. \emph{Phase interface:} a ZSim magic instruction forwards the phase to the Ramulator controller. We enable DAMOV-SIM's memory-clock divider so that DDR4-2400 runs at 1.2\,GHz against the 2.4\,GHz cores. \emph{Workloads:} DAMOV contains no FL client, so we implement five synthetic FedAvg clients in C++/OpenMP with real forward and backward passes on synthetic local data (256\,MB per client); all parameters are kept in one buffer that the DMA injector transfers. Each run simulates one round with $K$ local minibatches; ingress and egress times are taken from the DMA injector.
+We implement \name{} in DAMOV-SIM~\cite{damov}, which couples ZSim~\cite{zsim} with Ramulator~\cite{ramulator}. \emph{Network model:} DAMOV-SIM has no NIC. We add a DMA injector at the ZSim--Ramulator boundary that issues cache-bypassing write (ingress) and read (egress) requests over the model buffer at the configured link rate. \emph{Phase interface:} a ZSim magic instruction forwards the phase to the Ramulator controller. We enable DAMOV-SIM's memory-clock divider so that DDR4-2400 runs at 1.2\,GHz against the 2.4\,GHz cores. \emph{Workloads:} DAMOV contains no FL client, so we implement three dense-model synthetic FedAvg clients (MLP, LSTM, GRU) in C++/OpenMP with real forward and backward passes on synthetic local data (256\,MB per client); all parameters are kept in one buffer that the DMA injector transfers. Each run simulates one round with $K$ local minibatches; ingress and egress times are taken from the DMA injector.
 % CHANGED: added clock-divider fix, workload description and how round time is measured.
 \emph{System and workloads:} Table~\ref{tab:config}. \emph{Baselines:} FCFS, FR-FCFS, FR-FCFS with row-hit cap, and BLISS. \emph{Metrics:} round time and its per-phase breakdown, average and tail read latency, number of read/write bus turnarounds, and DRAM energy.
 
@@ -144,17 +144,19 @@ Cores & 4 $\times$ 4-wide out-of-order x86-64, 2.4\,GHz \\
 Caches & 32\,kB L1, 256\,kB L2, 8\,MB shared L3 \\
 Memory & DDR4-2400, 1 channel, 1 rank, 32-entry read/write queues \\
 Network & 10\,GbE (1.25\,GB/s), modelled by the DMA injector \\
-Workloads & FedAvg clients: logistic regression (LR) and \\
- & naive Bayes (NB), 38\,MB; MLP 1024-2048-2048-10, \\
- & 24\,MB; 2-layer LSTM / GRU (hidden 512), 14 / 11\,MB \\
-Round & one round; $K$=64/128/2/1/1 minibatches of \\
- & 512/512/32/8/8 samples (LR/NB/MLP/LSTM/GRU) \\
+Workloads & FedAvg clients: MLP 1024-2048-2048-10 (24\,MB); \\
+ & 2-layer LSTM / GRU, hidden 512 (14 / 11\,MB) \\
+Round & one round; $K$=2/1/1 minibatches of \\
+ & 32/8/8 samples (MLP/LSTM/GRU) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \section{Preliminary Results}
-Fig.~\ref{fig:results} reports round time normalised to FR-FCFS. \name{} shortens the round by 0.3\% on average (geometric mean) and by up to 1.1\% (MLP), and is never slower than FR-FCFS. At 10\,GbE, ingress and egress are bounded by the link and take the same time under every scheduler; they account for 58--62\% of the LR and NB rounds, whose sparse updates leave little for the scheduler to improve (${\le}0.02\%$). The gain comes from training in the dense clients (MLP, LSTM, GRU), where average read latency falls by 1.0\% on average and by up to 2.8\% (GRU), and the median read latency of the MLP drops by 20\%. Scheduling matters on these clients: FCFS lengthens the round by 43\% on average. The row-hit cap costs 0.6\%, and BLISS lengthens the round by 1.0\%, confirming that thread-level fairness does not capture phase behaviour. DRAM energy, estimated from the DRAM command counts and DDR4 datasheet currents, falls by 0.3\% on average and by up to 1.2\% (MLP), from the shorter round and up to 11\% fewer row activations.
+Fig.~\ref{fig:results} reports round time normalised to FR-FCFS. \name{} shortens the round by 0.5\% on average (geometric mean) and by up to 1.1\% (MLP), and is never slower than FR-FCFS. At 10\,GbE, ingress and egress are bounded by the link and take the same time under every scheduler; the gain comes from training, where gradient and weight write-backs compete with reads: average read latency falls by 1.7\% on average and by up to 2.8\% (GRU), and the median read latency of the MLP drops by 20\%. Scheduling matters on these clients: FCFS lengthens the round by 7.6\% on average. The row-hit cap costs 1.0\%, and BLISS lengthens the round by 1.3\%, confirming that thread-level fairness does not capture phase behaviour. DRAM energy, estimated from the DRAM command counts and DDR4 datasheet currents, falls by 0.5\% on average and by up to 1.2\% (MLP), from the shorter round and up to 11\% fewer row activations. Sparse linear clients (logistic regression, naive Bayes) are dominated by the transfer of their 38\,MB models and change by at most 0.02\%.
+% CHANGED 2026-11-25: workloads reduced to MLP/LSTM/GRU (user decision); LR/NB kept as one sentence for transparency.
+% Geomeans over MLP/LSTM/GRU: PhaSched 0.9952, Cap 1.0098, BLISS 1.0129, FCFS 1.0761; TRAIN read latency 0.9831;
+% energy 0.9947. Per workload: PhaSched 0.9887/0.9984/0.9985; Cap 1.0079/1.0120/1.0094; BLISS 1.0301/1.0042/1.0047.
 % FILLED 2026-11-25: energy PhaSched/FR-FCFS 0.9999/1.0001/0.9884/0.9979/0.9979 geo 0.9968; ACT ratio
 %   0.9999/1.0002/0.8924/0.9783/0.9652. Model: phasched/scripts/energy.py (typical 4Gb x8 DDR4-2400 IDD values).
 % FILLED 2026-11-25 from the 10 GbE matrix (round = DMA-in + TRAIN + DMA-out, CPU cycles, normalised to FR-FCFS):
@@ -170,14 +172,14 @@ Fig.~\ref{fig:results} reports round time normalised to FR-FCFS. \name{} shorten
 \begin{tikzpicture}
 \begin{axis}[ybar,width=\columnwidth,height=3.3cm,ymin=0.97,ymax=1.04,ytick={0.97,0.98,0.99,1.00,1.01,1.02,1.03,1.04},yticklabel style={/pgf/number format/fixed,/pgf/number format/precision=2},
   ylabel={Norm. round time},ylabel style={font=\scriptsize},
-  symbolic x coords={LR,NB,MLP,LSTM,GRU,Geomean},xtick=data,
-  tick label style={font=\scriptsize},enlarge x limits=0.12,bar width=3pt,
+  symbolic x coords={MLP,LSTM,GRU,Geomean},xtick=data,
+  tick label style={font=\scriptsize},enlarge x limits=0.18,bar width=4pt,
   legend style={font=\tiny,at={(0.5,1.03)},anchor=south,legend columns=4,draw=none}]
 % Measured values, normalised to FR-FCFS (10 GbE, one round).
-\addplot coordinates {(LR,1) (NB,1) (MLP,1) (LSTM,1) (GRU,1) (Geomean,1)};
-\addplot coordinates {(LR,0.9999) (NB,0.9999) (MLP,1.0079) (LSTM,1.0120) (GRU,1.0094) (Geomean,1.0058)};
-\addplot coordinates {(LR,1.0077) (NB,1.0044) (MLP,1.0301) (LSTM,1.0042) (GRU,1.0047) (Geomean,1.0101)};
-\addplot coordinates {(LR,0.9998) (NB,1.0000) (MLP,0.9887) (LSTM,0.9984) (GRU,0.9985) (Geomean,0.9971)};
+\addplot coordinates {(MLP,1) (LSTM,1) (GRU,1) (Geomean,1)};
+\addplot coordinates {(MLP,1.0079) (LSTM,1.0120) (GRU,1.0094) (Geomean,1.0098)};
+\addplot coordinates {(MLP,1.0301) (LSTM,1.0042) (GRU,1.0047) (Geomean,1.0129)};
+\addplot coordinates {(MLP,0.9887) (LSTM,0.9984) (GRU,0.9985) (Geomean,0.9952)};
 \legend{FR-FCFS,FR-FCFS-Cap,BLISS,\name{}}
 \end{axis}
 \end{tikzpicture}

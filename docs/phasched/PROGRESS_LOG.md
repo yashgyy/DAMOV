@@ -306,6 +306,14 @@ Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
 - Open: final runs should use `phasched_egress_cap = 1000000` to match the text (runs so far used 64; egress is
   link-bound so no effect expected).
 
+### Paper: workloads reduced to MLP/LSTM/GRU  (2026-11-25, user decision)
+- Fig. 2, Table II, abstract, methodology and results now use only the dense clients. Previous 5-workload version
+  kept as `paper/paper1_phase_aware_scheduling.5wl.tex`.
+- New numbers (geomean over MLP/LSTM/GRU): round PhaSched −0.48 % (0.9952), Cap +0.98 %, BLISS +1.29 %, FCFS +7.6 %;
+  TRAIN read latency −1.7 % (0.9831); DRAM energy −0.5 % (0.9947). Max: −1.1 % round, −2.8 % latency, −1.2 % energy.
+- One sentence keeps LR/NB for transparency ("change by at most 0.02 %", link-dominated) — dropping them silently
+  would look like cherry-picking.
+
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
 | # | Paper claim | Status | Evidence |

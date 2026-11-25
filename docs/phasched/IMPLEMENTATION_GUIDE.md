@@ -974,3 +974,97 @@ Rebuild ZSim only. Rerun FRFCFS_1000g, PhaSched_1000g, FRFCFS_Cap_100g, PhaSched
 - Real, positive finding: at DRAM-bound transfer rates FR-FCFS starves co-running core reads for the entire transfer
   (avg 277,820 DRAM clk ≈ 231 µs); PhaSched's guard bounds them to ≈ Tmax (2,037 clk ≈ 1.7 µs) → **136× lower**.
   At link-bound rates (100 G) the eager rule costs latency (240 → 2,037 clk) → Tmax / INGRESS rule need tuning.
+
+---
+
+## Step 5 — BLISS baseline (Subramanian et al., ICCD 2014)
+
+**Rule:** a source (core, or the NIC/DMA) that gets ≥ `threshold` (4) requests served **in a row** is blacklisted;
+the blacklist is cleared every `clear_int` (10,000) DRAM clocks. Priority: non-blacklisted > ready (row hit) > oldest.
+Sources: cores 0..N-1, DMA = N.
+
+### 5.0 Save reference first (ubench is now the DMA build)
+```bash
+cd /DAMOV/phasched/results && cp ubench_FRFCFS_Cap_10g.ramulator.stats golden/step6_FRFCFS_Cap_10g.ramulator.stats
+```
+
+### 5.1 `/DAMOV/simulator/ramulator/Scheduler.h`
+a) Public members (e.g. below `long cap = 16;`):
+```cpp
+    // ---- BLISS state ----
+    int nsrc = 5;                         // cores + 1 (DMA)
+    vector<char> black;                   // blacklisted sources
+    int last_src = -1, streak = 0;
+    long threshold = 4, clear_int = 10000, last_clear = 0, blacklistings = 0;
+    int src_of(const Request& r) {
+        if (r.is_dma) return nsrc - 1;
+        return (r.coreid >= 0 && r.coreid < nsrc - 1) ? r.coreid : 0;
+    }
+    bool is_black(const Request& r) { return black.size() == (size_t)nsrc && black[src_of(r)]; }
+    void on_served(const Request& r) {
+        if (type != Type::BLISS) return;
+        if (black.size() != (size_t)nsrc) black.assign(nsrc, 0);
+        if (ctrl->clk - last_clear >= clear_int) { std::fill(black.begin(), black.end(), 0); last_clear = ctrl->clk; }
+        int s = src_of(r);
+        if (s == last_src) streak++; else { last_src = s; streak = 1; }
+        if (streak >= threshold && !black[s]) { black[s] = 1; blacklistings++; }
+    }
+```
+b) Replace the **BLISS placeholder lambda** in `compare[]` with:
+```cpp
+        // BLISS: non-blacklisted > ready > oldest
+        [this] (ReqIter req1, ReqIter req2) {
+            bool b1 = this->is_black(*req1), b2 = this->is_black(*req2);
+            if (b1 ^ b2) { if (!b1) return req1; return req2; }
+            bool ready1 = this->ctrl->is_ready(req1);
+            bool ready2 = this->ctrl->is_ready(req2);
+            if (ready1 ^ ready2) { if (ready1) return req1; return req2; }
+            if (req1->arrive <= req2->arrive) return req1;
+            return req2;},
+```
+
+### 5.2 `/DAMOV/simulator/ramulator/Controller.h`
+a) Constructor scheduler chain, before the final `else`:
+`else if (sched == "BLISS")      scheduler->type = Scheduler<T>::Type::BLISS;`
+b) After the `phasched_egress_cap` line:
+```cpp
+        scheduler->nsrc = configs.get_core_num() + 1;
+        if (configs["bliss_threshold"] != "") scheduler->threshold = stol(configs["bliss_threshold"]);
+        if (configs["bliss_clear"]     != "") scheduler->clear_int = stol(configs["bliss_clear"]);
+        if (sched == "BLISS") printf("[PHASCHED] BLISS nsrc=%d threshold=%ld clear=%ld\n",
+                                     scheduler->nsrc, scheduler->threshold, scheduler->clear_int);
+```
+c) In `tick()`, directly before `queue->q.erase(req);` (end of tick):
+```cpp
+        if (req->type == Request::Type::READ || req->type == Request::Type::WRITE)
+            scheduler->on_served(*req);
+```
+d) In `void finish(long dram_cycles)`, first line:
+```cpp
+      if (scheduler->type == Scheduler<T>::Type::BLISS)
+          printf("[PHASCHED] BLISS ch%d blacklistings=%ld\n", channel->id, scheduler->blacklistings);
+```
+
+### 5.3 Configs
+```bash
+cd /DAMOV/phasched/configs/ramulator
+sed 's/scheduler = FRFCFS$/scheduler = BLISS/' DDR4-FRFCFS.cfg > DDR4-BLISS.cfg
+printf " bliss_threshold = 4\n bliss_clear = 10000\n" >> DDR4-BLISS.cfg
+grep -E "scheduler|bliss" DDR4-BLISS.cfg
+cd /DAMOV/phasched/configs/zsim
+sed -e "s#DDR4-FRFCFS.cfg#DDR4-BLISS.cfg#" -e "s#ubench_FRFCFS\"#ubench_BLISS_10g\"#" ubench_FRFCFS.cfg > ubench_BLISS_10g.cfg
+sed -e "s#DDR4-FRFCFS.cfg#DDR4-BLISS.cfg#" -e "s#ubench_FRFCFS_1000g\"#ubench_BLISS_1000g\"#" ubench_FRFCFS_1000g.cfg > ubench_BLISS_1000g.cfg
+grep -E "stats|ramulatorConfig|dmaLink" ubench_BLISS_*.cfg
+chown -R 1037:1041 /DAMOV/phasched
+```
+
+### 5.4 Rebuild (headers) + 4 runs
+`make clean && make libramulator.so`, `compile.sh z`, then run BLISS_10g, BLISS_1000g, FRFCFS (10 G reference,
+config `ubench_FRFCFS.cfg`) and FRFCFS_Cap_10g (regression).
+
+### ✅ Checks
+1. Log: `[PHASCHED] BLISS nsrc=5 threshold=4 clear=10000` and at the end `blacklistings=<N>` with N > 0.
+2. Regression: `cmp.sh golden/step6_FRFCFS_Cap_10g ubench_FRFCFS_Cap_10g` all OK.
+3. BLISS_10g vs FRFCFS (10 G): TRAIN within ~1 % (single core thread → blacklisting has little to choose between).
+4. BLISS_1000g INGRESS core-read latency ≪ FRFCFS_1000g (277,820): the streaming DMA source gets blacklisted, so
+   core reads are served early (compare with PhaSched 2,037). Use `dma.csv` for INGRESS/EGRESS transfer times.

@@ -51,7 +51,7 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 | 2 | Phase interface (magic op → phase register) | ☑ | 2026-11-24 | + Step 2b: memory clock divider enabled |
 | 3 | Per-phase metrics CSV | ☑ | 2026-11-25 | + 3b real bus turnarounds |
 | 4 | PhaSched presets + starvation guard | ☑ | 2026-11-25 | IDLE exact; EGRESS −87 % turnarounds; INGRESS re-check with DMA |
-| 5 | BLISS baseline | ☐ | | |
+| 5 | BLISS baseline | ◐ | 2026-11-25 | instructions given |
 | 6 | DMA injector (NIC) | ☑ | 2026-11-25 | validated; 1000 G gain = artifact; QoS gain real |
 | 7 | FL workload integration + round sizing (K) | ☐ | | |
 | 8 | Experiment matrix runs | ☐ | | |
@@ -216,6 +216,16 @@ Template — copy for every step:
   4. Validated infrastructure: phase interface, per-phase metrics, NIC/DMA model for DAMOV.
 - Negative: no INGRESS/EGRESS shortening with NIC-only traffic at 10/100 GbE; at 100 G PhaSched raises co-running
   read latency 240 → 2,037 clk (eager INGRESS rule holds write mode).
+
+### Decision 2026-11-25
+- Do not choose the paper story yet. Continue as planned: Step 5 (BLISS) → Step 7 (real FL workloads) → decide the
+  story (overlap / co-runner / TRAIN-only) from Step 7 data.
+- Measurement rule from now on: INGRESS/EGRESS durations from `<run>.dma.csv`, not phase stamps (bound-weave artifact).
+
+### Step 5 — BLISS  (2026-11-25, in progress)
+- Changes: Scheduler.h (BLISS state, on_served, is_black, real BLISS lambda), Controller.h (BLISS config keys,
+  nsrc = cores + 1, on_served before erase, blacklistings print), DDR4-BLISS.cfg, ubench_BLISS_{10g,1000g}.cfg.
+- Result: _pending_
 
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 

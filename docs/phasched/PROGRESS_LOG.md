@@ -50,9 +50,9 @@ Implementation steps are in `IMPLEMENTATION_GUIDE.md`.
 | 1 | Config knobs (scheduler, queue, Whi/Wlo, cap) | ☑ | 2026-11-24 | + Ramulator get_hits bug fixed |
 | 2 | Phase interface (magic op → phase register) | ☑ | 2026-11-24 | + Step 2b: memory clock divider enabled |
 | 3 | Per-phase metrics CSV | ☑ | 2026-11-25 | + 3b real bus turnarounds |
-| 4 | PhaSched presets + starvation guard | ◐ | 2026-11-25 | instructions given |
+| 4 | PhaSched presets + starvation guard | ☑ | 2026-11-25 | IDLE exact; EGRESS −87 % turnarounds; INGRESS re-check with DMA |
 | 5 | BLISS baseline | ☐ | | |
-| 6 | DMA injector (NIC) | ☐ | | |
+| 6 | DMA injector (NIC) | ◐ | 2026-11-25 | done before Step 5 |
 | 7 | FL workload integration + round sizing (K) | ☐ | | |
 | 8 | Experiment matrix runs | ☐ | | |
 | 9 | Analysis, energy, figures, paper | ☐ | | |
@@ -165,6 +165,28 @@ Template — copy for every step:
   ubench_nohint binary (-DPHASCHED_NO_HINTS).
 - Build error: `Controller<HMC> has no member named 'phase_cap' / 'phase' / 'tmax'` — DAMOV's HMC controller is a
   separate specialization that instantiates Scheduler<HMC>. Fix: add stub members to HMC_Controller.h (guide 4.2f).
+- Results (ubench, CPU-proxy NIC):
+  Regression A (base vs step2b) OK. Regression B (PhaSched no-hint vs FRFCFS_Cap) OK → IDLE == baseline ✅.
+  EGRESS: turnarounds −87 % (12,810 → 1,712), cycles −4.9 %, avg lat 35.2 → 32.3, P99 126 → 161, row hits +0.4 %.
+  TRAIN: unchanged (few writes; baseline already exits write mode immediately).
+  INGRESS: worse (+12.5 % cycles, turnarounds 10.8 k → 35.4 k, avg lat 74.8 → 89.5) — CPU proxy mixes RFO reads
+  with writebacks so eager drain flips for every writeback. Not representative of a NIC; re-check with DMA.
+- Result: ✅ mechanism works and IDLE is exact; INGRESS rule to be re-evaluated with real DMA traffic.
+
+### Order change
+- Do Step 6 (DMA injector) before Step 5 (BLISS): the paper's main claims (INGRESS/EGRESS) need NIC traffic.
+
+### ⚠ Key risk identified (2026-11-25): link-rate bound
+- At 10 GbE the NIC issues one 64 B line every ~123 CPU cycles (1.25 GB/s) while DDR4-2400 x64 delivers 19.2 GB/s.
+  INGRESS/EGRESS duration is then set by the link, not by DRAM → **no scheduler can shorten them**; PhaSched can
+  only reduce interference with concurrent core traffic. The paper's "[A%]/[B%] ingress/egress shrink" is only
+  achievable when DRAM is the bottleneck (fast links ≥ 100 GbE / RDMA, or concurrent memory traffic).
+- Plan: measure with the DMA injector at 10 GbE and DRAM-bound (1000 Gbps) to quantify; then decide the Table II
+  network row / a link-rate sweep (e.g. 10/40/100/200 Gbps).
+
+### Step 6 — DMA injector  (2026-11-25, in progress)
+- Changes: phase_hint.h (ops 1041–1043, poll loop), zsim.cpp (3 cases), ramulator_mem_ctrl.{h,cpp} (injector in tick,
+  callback, setDmaLink), init.cpp (`sys.mem.dmaLinkGbps`, default 10).
 - Result: _pending_
 
 ## 6. Results (fill in Step 9)

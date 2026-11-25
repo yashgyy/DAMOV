@@ -738,3 +738,149 @@ wait
    Note: ubench still uses the CPU as "NIC" (INGRESS mixes RFO reads with writes), so effects here are only a
    sanity check — the real INGRESS/EGRESS effect comes after the DMA injector (Step 6).
 5. No deadlock: all 4 logs end with `All children done`.
+
+### Step 4 result (ubench, CPU-proxy NIC)
+- Regression A (base vs step2b) OK; **Regression B (PhaSched no-hint vs FRFCFS_Cap) OK** → IDLE == baseline ✅.
+- EGRESS: turnarounds 12,810 → 1,712 (−87 %), cycles 4.06 M → 3.86 M (−4.9 %), avg read lat 35.2 → 32.3,
+  P99 126 → 161 (residual writes wait until Whi), row hits +0.4 %.
+- TRAIN: unchanged (ubench writes are rare; baseline already leaves write mode immediately when wq ≤ Wlo).
+- INGRESS: **worse** — cycles 5.00 M → 5.62 M (+12.5 %), turnarounds 10.8 k → 35.4 k, avg lat 74.8 → 89.5.
+  Cause: the CPU-proxy INGRESS (memset) mixes RFO reads with writebacks; "eager" drain switches to write mode for
+  every single writeback. With a real NIC (pure DMA writes) this cannot happen → re-evaluate after the DMA injector.
+
+---
+
+## Step 6 (done before Step 5) — DMA injector = the NIC
+
+Done before BLISS because the paper's INGRESS/EGRESS claims can only be tested with real NIC traffic.
+
+**Model:** on `fl_dma_in(buf, n)` / `fl_dma_out(buf, n)` the NIC writes / reads `[buf, buf+n)` in 64 B lines directly
+in DRAM (bypassing caches), one line every `interval` CPU cycles (link rate). The program spins on a poll magic op
+until the last line has completed, so INGRESS/EGRESS take real simulated time.
+`interval = cpuFreq · 64 B / (Gbps/8)`: 10 GbE → 122.88 cyc/line, 100 GbE → 12.29, 1000 → 1.23 (DRAM-bound).
+
+### 6.1 App side — `/DAMOV/phasched/include/phase_hint.h`
+Replace the two CPU-proxy functions `fl_dma_in` / `fl_dma_out` with:
+```c
+#define ZSIM_MAGIC_OP_DMA_WRITE (1041)   /* NIC -> DRAM : rdx = addr, rsi = bytes */
+#define ZSIM_MAGIC_OP_DMA_READ  (1042)   /* DRAM -> NIC : rdx = addr, rsi = bytes */
+#define ZSIM_MAGIC_OP_DMA_POLL  (1043)   /* rdx <- 1 while the NIC is busy */
+
+static inline uint64_t zsim_op_ret(uint64_t op) {
+    uint64_t r = 0;
+    COMPILER_BARRIER();
+    __asm__ __volatile__("xchg %%rcx, %%rcx;" : "+d"(r) : "c"(op));
+    COMPILER_BARRIER();
+    return r;
+}
+#if defined(PHASCHED_NO_HINTS) || defined(PHASCHED_NO_DMA)
+/* CPU proxy for the NIC */
+static inline void fl_dma_in(void* b, size_t n)  { memset(b, 1, n); }
+static inline void fl_dma_out(void* b, size_t n) {
+    volatile float s = 0; const float* f = (const float*)b;
+    for (size_t i = 0; i < n / sizeof(float); i += 16) s += f[i];
+}
+#else
+static inline void fl_dma_wait(void) { while (zsim_op_ret(ZSIM_MAGIC_OP_DMA_POLL)) __builtin_ia32_pause(); }
+static inline void fl_dma_in (void* b, size_t n) { zsim_op2(ZSIM_MAGIC_OP_DMA_WRITE, (uint64_t)b, n); fl_dma_wait(); }
+static inline void fl_dma_out(void* b, size_t n) { zsim_op2(ZSIM_MAGIC_OP_DMA_READ,  (uint64_t)b, n); fl_dma_wait(); }
+#endif
+```
+(`zsim_op2` must be defined above this block — it is, from Step 2. Natively the poll returns 0, so the program does
+not wait.)
+
+### 6.2 ZSim — `/DAMOV/simulator/src/zsim.cpp`
+Next to `#define ZSIM_MAGIC_OP_PHASE (1040)`:
+```cpp
+#define ZSIM_MAGIC_OP_DMA_WRITE (1041)
+#define ZSIM_MAGIC_OP_DMA_READ  (1042)
+#define ZSIM_MAGIC_OP_DMA_POLL  (1043)
+```
+In the `switch`, after the `ZSIM_MAGIC_OP_PHASE` case:
+```cpp
+        case ZSIM_MAGIC_OP_DMA_WRITE:
+        case ZSIM_MAGIC_OP_DMA_READ:
+            if (zinfo->ramulator_memory && zinfo->ramulator) {
+                uint64_t a = ((uint64_t)rdx->qword[0] >> lineBits) << lineBits;   // same mapping as cache lines
+                zinfo->ramulator->requestDma(a, (uint64_t)rsi, op == ZSIM_MAGIC_OP_DMA_WRITE);
+            }
+            return;
+        case ZSIM_MAGIC_OP_DMA_POLL:
+            rdx->qword[0] = (zinfo->ramulator_memory && zinfo->ramulator && zinfo->ramulator->dmaBusy()) ? 1 : 0;
+            return;
+```
+
+### 6.3 `/DAMOV/simulator/src/ramulator_mem_ctrl.h` (class Ramulator)
+public:
+```cpp
+    void requestDma(uint64_t addr, uint64_t bytes, bool isWrite) {
+      dmaReqAddr = addr; dmaReqBytes = bytes; dmaReqWrite = isWrite; dmaPending = true;
+    }
+    bool dmaBusy() { return dmaPending || dmaActive; }
+    void setDmaLink(double gbps);
+```
+private:
+```cpp
+    volatile bool dmaPending = false, dmaActive = false;
+    uint64_t dmaReqAddr = 0, dmaReqBytes = 0; bool dmaReqWrite = false;
+    bool dmaWrite = false; uint64_t dmaNext = 0, dmaEnd = 0; long dmaOutstanding = 0;
+    double dmaNextIssue = 0, dmaInterval = 122.88;
+    std::function<void(ramulator::Request&)> dma_cb_func;
+    void DRAM_dma_return_cb(ramulator::Request&);
+```
+
+### 6.4 `/DAMOV/simulator/src/ramulator_mem_ctrl.cpp`
+a) Constructor body (e.g. next to the `phaseLog` lines):
+```cpp
+  dma_cb_func = std::bind(&Ramulator::DRAM_dma_return_cb, this, std::placeholders::_1);
+```
+b) New functions (end of file):
+```cpp
+void Ramulator::DRAM_dma_return_cb(ramulator::Request& req) { dmaOutstanding--; }
+
+void Ramulator::setDmaLink(double gbps) {
+  dmaInterval = (double)cpuFreq * 1e6 * 64.0 / (gbps * 1e9 / 8.0);
+  info("[PHASCHED] DMA link %.1f Gbps -> %.2f CPU cycles per 64B line", gbps, dmaInterval);
+}
+```
+c) In `tick()`, **after** the clock-divider block (`tickCounter++;`):
+```cpp
+  // ---- PhaSched DMA injector (NIC) ----
+  if (dmaPending && !dmaActive) {
+    dmaWrite = dmaReqWrite; dmaNext = dmaReqAddr;
+    dmaEnd = dmaReqAddr + ((dmaReqBytes + 63) / 64) * 64;
+    dmaOutstanding = 0; dmaNextIssue = curCycle;
+    dmaActive = true; dmaPending = false;
+  }
+  if (dmaActive) {
+    if (dmaNext < dmaEnd && curCycle >= dmaNextIssue) {
+      ramulator::Request req((long)dmaNext,
+          dmaWrite ? ramulator::Request::Type::WRITE : ramulator::Request::Type::READ, dma_cb_func, 0);
+      req.is_dma = true;
+      if (wrapper->send(req)) { dmaNext += 64; dmaOutstanding++; dmaNextIssue += dmaInterval; }
+    }
+    if (dmaNext >= dmaEnd && dmaOutstanding == 0) dmaActive = false;
+  }
+```
+(If the controller queue is full, `send` fails and the line is retried next cycle; the NIC then catches up —
+models the NIC's on-board buffer.)
+
+### 6.5 `/DAMOV/simulator/src/init.cpp`
+After `zinfo -> ramulator = static_cast<Ramulator*>(mem);` add:
+```cpp
+        zinfo->ramulator->setDmaLink(config.get<double>("sys.mem.dmaLinkGbps", 10.0));
+```
+
+### 6.6 Rebuild + test configs
+Only ZSim files changed (no Ramulator header) → `sh scripts/compile.sh z`. Rebuild `ubench` (DMA version) with
+the Step 0.3 command (`ubench_nohint` stays the CPU-proxy build).
+Test configs: copies of `ubench_FRFCFS_Cap.cfg` / `ubench_PhaSched.cfg` with `dmaLinkGbps = <X>;` added inside
+`mem = { ... }` and stats names `ubench_<sched>_<X>g`, for X = 10 and 1000.
+
+### ✅ Checks
+1. Log shows `[PHASCHED] DMA link 10.0 Gbps -> 122.88 CPU cycles per 64B line`.
+2. 10 GbE: INGRESS and EGRESS each ≈ 16 MiB / 1.25 GB/s = 13.42 ms = **32.2 M cycles (±2 %)**.
+   INGRESS `wr` ≈ 262,144 and `reads` ≈ 0; EGRESS `dma_rd` ≈ 262,144.
+3. 1000 Gbps: INGRESS/EGRESS DRAM-bound, ≥ 16 MiB / 19.2 GB/s = 0.87 ms ≈ **2.1 M cycles** (expect ~2.5–4 M).
+4. No hang (all logs end with `All children done`); native `./phasched/ubench/ubench 16 64 1` still runs.
+5. PhaSched vs FRFCFS_Cap at both rates: per-phase cycles, turnarounds, row hits.

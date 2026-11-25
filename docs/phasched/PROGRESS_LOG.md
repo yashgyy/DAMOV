@@ -300,6 +300,9 @@ Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
   starvation guard "every phase" → "every FL phase"; results sentence: removed ingress/egress shrink [A%]/[B%]/[T%].
 - Left as placeholders: X, Xmax, Y, Z, E and the Fig. 2 bars.
 - 2026-11-25: X, Xmax, Y, Z and Fig. 2 filled from Step 8d (Fig. 2 y-axis 0.97–1.04, stated in caption). E filled (−0.3 %, up to −1.2 %). No placeholders left.
+- Fix 2026-11-25: two `% CHANGED` comments had been placed on the same line as following original text, commenting
+  out "These points already exist … non-FL software is unaffected." (Sec. II-A) and "System and workloads … DRAM
+  energy." (Sec. III). Restored; verified by word-level diff that only intended text differs from the original.
 - Open: final runs should use `phasched_egress_cap = 1000000` to match the text (runs so far used 64; egress is
   link-bound so no effect expected).
 

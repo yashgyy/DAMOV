@@ -256,6 +256,14 @@ Template — copy for every step:
   vs Cap); Cap-16 base costs ≈ 0.8 %.
 - Next: Step 8b TRAIN preset sweep (train_mode 0/1/2, base cap 16 vs ∞).
 
+### Step 8b — TRAIN preset sweep, DNN @ 10 G  (2026-11-25)
+- Round vs FRFCFS (539.0 M): t0 lazy/cap∞ +0.32 %, **t1 baseline/cap∞ −1.13 % (532.9 M)**, t2 full drain/cap∞ −0.80 %,
+  t1/cap16 +0.08 %. Best TRAIN read latency: t1_capinf avg 127.0 (−1.9 %), p50 60 (−20 %).
+- Controls ≠ baselines (t1_capinf −1.4 % TRAIN vs FRFCFS; t1_cap16 −0.9 % vs Cap) → the gain is the Tmax starvation
+  guard acting in TRAIN (age-based write drain), not the drain presets. Lazy rule = worst.
+- First positive round-time result for PhaSched (−1.1 %), modest; attribution: Tmax guard.
+- Next: Tmax sweep on t1_capinf (500/1000/4000/8000) to pick the final preset, then full matrix.
+
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
 | # | Paper claim | Status | Evidence |
@@ -269,8 +277,8 @@ Template — copy for every step:
 | 7 | Ingress/egress time shrinks [A%]/[B%] | ❌ NIC-only / ✅ small mixed | DMA time identical at 10/100/1000 G (dma.csv); mixed EGRESS −4.9 % |
 | 8 | Turnarounds drop [T%] | ✅ mixed only | EGRESS −87 % (CPU proxy); NIC-only nothing to drop |
 | 9 | Ingress preset (eager, no cap) helps | ❌ | no gain NIC-only; mixed INGRESS +12.5 % worse; 100 G co-running reads 240 → 2,037 clk |
-| 10 | Train preset: lower read latency [Y%] | ❌ as specified (lazy) / ❓ sweep | DNN: PhaSched 144.3 vs FRFCFS 129.5 avg lat; lazy drain adds turnarounds; sweeping drain modes (Step 8b) |
-| 11 | Round time −[X%] vs FR-FCFS | ❌ so far (DNN +1.1 %) / ❓ sweep | FCFS +5.7 %, BLISS +3.0 %, Cap +0.8 %, PhaSched +1.1 % vs FRFCFS |
+| 10 | Train preset: lower read latency [Y%] | ❌ lazy rule / ✅ small with guard | lazy: 129.8 vs 129.5; t1_capinf (baseline drain + Tmax guard): avg −1.9 %, p50 −20 % |
+| 11 | Round time −[X%] vs FR-FCFS | ✅ small (DNN −1.1 %, best preset) | t1_capinf −1.13 %; paper preset +1.1 %; gain from Tmax guard in TRAIN |
 | 12 | BLISS gains only [Z%] / thread fairness ≠ phase behaviour | ✅ (partial) | BLISS ≡ FR-FCFS single-thread; does not fix INGRESS starvation (277,764 vs PhaSched 2,037 clk) |
 | 13 | DRAM energy change [E%] | ❓ | per-phase command counts available; energy model pending; NIC-only counts equal → ≈ 0 % |
 | 14 | Methodology: DAMOV-SIM + DMA injector + magic op, DDR4-2400, 10 GbE | ✅ | injector exact (32.2 M cyc); DDR4 timing fixed (Step 2b) |

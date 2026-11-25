@@ -1202,3 +1202,21 @@ i.e. PhaSched on top of plain FR-FCFS).
 ```
 Configs (4 variants): t0_capinf, t1_capinf, t2_capinf, t1_cap16 (regression: must ≈ FRFCFS_Cap TRAIN; t1_capinf ≈ FRFCFS).
 `flsum.sh` now takes an optional quoted list of names as 3rd argument.
+
+### Step 8b result — DNN, 10 GbE, steps=2
+| variant | TRAIN cyc | rd avg | p50 | p99 | turn | round | vs FRFCFS |
+|---|---|---|---|---|---|---|---|
+| FRFCFS | 441,998,000 | 129.5 | 75 | 582 | 788,541 | 539,012,304 | — |
+| FRFCFS_Cap | 446,239,000 | 146.2 | 68 | 689 | 728,687 | 543,253,304 | +0.79 % |
+| PhaSched (lazy, cap16) | 447,936,000 | 144.3 | 68 | 690 | 803,939 | 544,950,796 | +1.10 % |
+| t0_capinf (lazy) | 443,706,000 | 129.8 | 72 | 592 | 809,181 | 540,720,368 | +0.32 % |
+| **t1_capinf (baseline drain)** | **435,932,000** | **127.0** | **60** | 592 | 806,527 | **532,946,304** | **−1.13 %** |
+| t2_capinf (full drain) | 437,657,000 | 133.4 | 72 | 617 | 770,950 | 534,671,368 | −0.80 % |
+| t1_cap16 (baseline drain) | 442,403,000 | 145.2 | 58 | 694 | 809,120 | 539,417,368 | +0.08 % (−0.71 % vs Cap) |
+- Controls do NOT equal their baselines: t1_capinf is 1.4 % faster in TRAIN than FRFCFS, t1_cap16 0.9 % faster than
+  FRFCFS_Cap. The only remaining difference is the **starvation guard (Tmax = 2000)**, active in TRAIN: it forces
+  writes that waited > Tmax to drain (age-based write drain) and serves old requests first.
+  → The gain comes from the Tmax guard, not from the lazy/full drain rules (lazy is worst; full drain −0.8 %).
+- Best: t1_capinf, round −1.13 %, TRAIN −1.37 %, read latency avg −1.9 %, p50 −20 % (75 → 60).
+- Caveat for the paper: the guard is phase-independent in principle; a reviewer can ask for "FR-FCFS + age guard".
+- `grep train_mode` printed nothing → the PhaSched printf was not updated (results show the modes are active).

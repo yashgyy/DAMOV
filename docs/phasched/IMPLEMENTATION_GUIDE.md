@@ -1219,4 +1219,4 @@ Configs (4 variants): t0_capinf, t1_capinf, t2_capinf, t1_cap16 (regression: mus
   → The gain comes from the Tmax guard, not from the lazy/full drain rules (lazy is worst; full drain −0.8 %).
 - Best: t1_capinf, round −1.13 %, TRAIN −1.37 %, read latency avg −1.9 %, p50 −20 % (75 → 60).
 - Caveat for the paper: the guard is phase-independent in principle; a reviewer can ask for "FR-FCFS + age guard".
-- `grep train_mode` printed nothing → the PhaSched printf was not updated (results show the modes are active).
+- Config check: `[PHASCHED] tmax=2000 egress_cap=64 train_mode=1` and `cap=1000000` in t1_capinf log ✅ (an earlier grep simply printed nothing).

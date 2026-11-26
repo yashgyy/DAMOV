@@ -6,6 +6,9 @@ Federated Learning"* (OCCARB) on top of DAMOV-SIM (ZSim + Ramulator).
 We take the work **one step at a time**. A step counts as done only when all of its
 verification checks pass. Each check's result is recorded in the log below.
 
+Simulator code/config changes are tracked separately in
+[`SIMULATOR_CHANGES.md`](SIMULATOR_CHANGES.md).
+
 ---
 
 ## Target results (placeholders in the paper)

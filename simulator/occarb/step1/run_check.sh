@@ -2,19 +2,24 @@
 # OCCARB Step 1 checks. Run from simulator/:  bash occarb/step1/run_check.sh
 set -u
 SIM=$(cd "$(dirname "$0")/../.." && pwd); cd "$SIM"
+WL=$(cd "$SIM/../workloads" && pwd)
 pass(){ echo "PASS $1"; }; fail(){ echo "FAIL $1"; FAILED=1; }; FAILED=0
 
-# 1a: build artifacts
+# 1a: build artifacts + workload binary
 [ -x build/opt/zsim ] && pass "1a zsim binary" || fail "1a build/opt/zsim missing"
 [ -f ramulator/libramulator.so ] && pass "1a libramulator.so" || fail "1a libramulator.so missing"
+[ -x "$WL/STREAM/stream_copy" ] && pass "1a stream_copy binary" || fail "1a $WL/STREAM/stream_copy missing (run compile.py in workloads/STREAM)"
 
 cycles(){ grep -m1 -E '^\s+cycles:' "$1/smoke.zsim.out" | awk '{print $2}'; }
-run(){ rm -rf "$1"; mkdir -p "$1"; (cd "$1" && ln -sf "$SIM/ramulator-configs" . && \
-       "$SIM/build/opt/zsim" "$SIM/occarb/step1/smoke.cfg" > zsim.log 2>&1); echo $?; }
+run(){ rm -rf "$1"; mkdir -p "$1"
+       sed "s#WORKLOADS_ROOT#$WL#" "$SIM/occarb/step1/smoke.cfg" > "$1/smoke.cfg"
+       (cd "$1" && ln -sf "$SIM/ramulator-configs" . && \
+        "$SIM/build/opt/zsim" "$SIM/$1/smoke.cfg" > zsim.log 2>&1); echo $?; }
 
-# 1b: run completes
+# 1b: run completes and produces stats
 R1=occarb/step1/out_run1
 rc=$(run $R1)
+grep -q "Injector exited" $R1/zsim.log && fail "1b Pin injector crashed (see $R1/zsim.log)"
 [ "$rc" = 0 ] && [ -f $R1/smoke.zsim.out ] && pass "1b smoke run (rc=0, smoke.zsim.out)" || fail "1b rc=$rc, see $R1/zsim.log"
 
 # 1c: non-zero activity in core and in Ramulator

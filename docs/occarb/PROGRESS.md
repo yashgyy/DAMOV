@@ -140,4 +140,14 @@ Simulator code/config changes are tracked separately in
     - ptrace blocked (Docker without `SYS_PTRACE`/seccomp, or Yama `ptrace_scope` != 0);
     - Pin 2.14 failing on the host's modern `dd` binary/glibc.
   - Diagnostics requested: kernel/OS, ptrace_scope, bare Pin on `/bin/ls`, stock `tests/simple.cfg`.
+- Diagnosis (user ran the stock DAMOV flow): STREAM Copy compiled with `workloads/STREAM/compile.py`;
+  configs generated with `scripts/generate_config_files.py command_files/stream_cf`;
+  `host_ooo/no_prefetch/stream/1/Copy_Copy.cfg` with maxTotalInstrs=1M → **ran fine**
+  (Ramulator initialised, STREAM started, clean termination). So Pin and ptrace work.
+- Root cause: the smoke cfg was missing the settings DAMOV's template sets:
+  `sim.pinOptions = "-ifeellucky"` (Pin 2.14 kernel-version bypass) and `gmMBytes = 8192`.
+  The system `dd` binary was also swapped for the known-good STREAM binary.
+- Fix: rewrote `smoke.cfg` (1 OOO core, DDR4, STREAM Copy, 20M instrs, `-ifeellucky`,
+  `startFastForwarded`) and `run_check.sh` (substitutes the workloads path, checks the binary
+  exists, detects "Injector exited").
 - Run 3: _(pending)_

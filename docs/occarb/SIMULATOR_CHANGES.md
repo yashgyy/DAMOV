@@ -45,6 +45,18 @@ Existing simulator source files modified so far: **none**.
 - **[MOD, our own file] `simulator/occarb/step1/run_check.sh`** (after run 1):
   - It now reads `smoke.zsim.out` instead of `zsim.out`.
 
+- **[MOD, our own files] `smoke.cfg` + `run_check.sh`** (after run 2, Pin injector crash):
+  - `smoke.cfg` now mirrors `templates/template_host_ooo.cfg`: OOO core, `pinOptions = "-ifeellucky"`,
+    `gmMBytes = 8192`, `deadlockDetection = false`, `startFastForwarded = True`. The workload is
+    `WORKLOADS_ROOT/STREAM/stream_copy 1` instead of `dd`.
+  - `run_check.sh` replaces `WORKLOADS_ROOT` with `<repo>/workloads` and writes the result into each run directory.
+
+### Required ZSim settings on this setup (lesson from Step 1)
+- `sim.pinOptions = "-ifeellucky"` is **mandatory**. Without it, Pin 2.14 aborts
+  (`Injector exited with signal 6`) and the harness still exits 0.
+- Use workload binaries from `workloads/`. Don't use system binaries.
+- Every OCCARB config will be derived from DAMOV's templates to inherit these settings.
+
 ### DAMOV output-file naming (important for all later scripts)
 DAMOV changed ZSim's output naming. Every output goes to the run's working directory
 (`getcwd`, `src/zsim_harness.cpp:332`) with the `sim.stats` value as a prefix:

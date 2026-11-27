@@ -240,7 +240,12 @@ Simulator code/config changes are tracked separately in
   2. Single-core runs are bit-deterministic within one build, so they serve as exact regression tests.
   3. Code changes shift absolute cycles slightly (layout), so a cross-build regression uses a 0.5%
      tolerance. S = T_overlap/T_alone always uses one build.
-- Open: `file ../workloads/STREAM/stream_copy` (PIE or not). Output not received yet.
+- `file ../workloads/STREAM/stream_copy` → `ELF 64-bit LSB shared object ... dynamically linked`,
+  so **the binary is PIE**. Its load address (and its static arrays) is chosen at load time, after Pin
+  and the tool libraries are mapped. This is consistent with the layout hypothesis: a different
+  `libramulator.so` size gives a different app base, so cache sets and DRAM banks shift.
+  - Decision: keep the 0.5% cross-build tolerance and same-build S ratios. Recompiling workloads
+    with `-no-pie` is a possible later refinement, but not needed for correctness of S.
 
 ### Step 3: DMA source tag
 - Status: in progress

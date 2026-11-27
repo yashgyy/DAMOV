@@ -353,3 +353,20 @@ Simulator code/config changes are tracked separately in
     the row-hit vs row-conflict mix, which then persists for the whole run.
   - Test: compare the `row_hits` / `row_misses` / `row_conflicts` stats (`ramulator/Memory.h:248-260`)
     of the two runs.
+- Diagnosis 2 (row-buffer stats, same build, same config):
+
+  | run | cycles | row_hits | row_misses | row_conflicts |
+  |---|---|---|---|---|
+  | q64 | 24,039,279 | 951,969 | 17,340 | **324,878** |
+  | q64_rep | 21,785,770 | 1,012,657 | 18,648 | **262,406** |
+
+  - **Hypothesis confirmed.** The slower run had 24% more row conflicts (+62k) and 6% fewer row
+    hits, for the same total requests (≈1.29M). Run-to-run variance comes from how the 4 threads'
+    sequential streams interleave in the shared banks, which is decided by host-dependent thread
+    start skew.
+  - Relevance to OCCARB: this is the same mechanism DMA streams will trigger (sequential DMA
+    streams breaking the cores' open rows), and the reason URGENT serves DMA "in row-hit bursts".
+    Row-buffer hit rate should be reported as a supporting metric.
+- Methodology proposal (pending user decision): single-core validation for Steps 5b–8; the
+  multi-core repeat count is set in Step 9 from the measured variance of the real workloads;
+  Fig. 2 gets error bars.

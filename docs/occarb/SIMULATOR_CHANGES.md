@@ -23,7 +23,11 @@ Legend: **[NEW]** new file · **[MOD]** modified existing file · **[DEL]** dele
 | `simulator/occarb/lib.sh` | NEW | 2 | Shared helpers for check scripts |
 | `simulator/occarb/step2/run_check.sh` | NEW | 2 | Step 2 checks (2a–2e) |
 
-Existing simulator source files modified so far: `ramulator/Controller.h` (Step 2).
+| `simulator/ramulator/Request.h` | **MOD** | 3 | `bool is_dma = false;` source tag |
+| `simulator/occarb/step3/test_request.cc` | NEW | 3 | Unit test for the tag |
+| `simulator/occarb/step3/run_check.sh` | NEW | 3 | Step 3 checks (3a–3c) |
+
+Existing simulator source files modified so far: `ramulator/Controller.h` (Step 2), `ramulator/Request.h` (Step 3).
 
 ---
 
@@ -151,7 +155,43 @@ No. Only new files were added.
 - Consequence: T_alone and T_overlap must always come from the same build. After each rebuild,
   re-run the baseline.
 
+### Multi-core measurement noise (from Step 2)
+- Two identical 4-core runs differ by about 0.12% in cycles, and slightly in DRAM request counts.
+  Thread interleaving under ZSim depends on host scheduling.
+- Rule: each multi-core configuration is run 3 times, and we report the mean (min–max).
+- Single-core runs are bit-reproducible within a build.
+
 ### Build note
 - In this (Claude) container, the newer GCC fails on `StatType.h` without `#include <cstdint>`.
   This is pre-existing and unrelated to OCCARB. The user's toolchain builds it as is.
   If a newer compiler is used later, add `#include <cstdint>` to `ramulator/StatType.h`.
+
+---
+
+## Step 3: DMA source tag
+
+### What we did
+Added a per-request source bit, so later steps can tell NIC DMA traffic from core traffic.
+This is the "one source bit per queue entry" that the paper's cost analysis (§II-C) counts.
+
+### Changes
+- **[MOD] `simulator/ramulator/Request.h`**: inside `class Request`, right after `int coreid = -1;`:
+  ```cpp
+  // OCCARB: request source. false = core (cache hierarchy), true = NIC DMA (cache-bypassing)
+  bool is_dma = false;
+  ```
+  - The in-class default means every existing constructor, and therefore every core request
+    built in `src/ramulator_mem_ctrl.cpp` (`tick()`, `enqueue()`), is tagged as a core request.
+  - The field is copied with the request into the controller queues.
+  - This header is included by ZSim (`src/ramulator_mem_ctrl.cpp`), so **both** libraries must be
+    rebuilt: `bash occarb/rebuild.sh`.
+- **[NEW] `simulator/occarb/step3/test_request.cc`**: standalone unit test that needs no simulator.
+- **[NEW] `simulator/occarb/step3/run_check.sh`**: checks 3a–3c.
+
+### Simulator behaviour changed?
+No. Nothing reads `is_dma` yet. Absolute cycles may shift by <0.5% from the layout effect.
+
+### Undo
+- Remove the 2 lines from `Request.h`.
+- Delete `occarb/step3/`.
+- Run `bash occarb/rebuild.sh`.

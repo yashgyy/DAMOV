@@ -34,8 +34,8 @@ Simulator code/config changes are tracked separately in
 | # | Step | Status |
 |---|---|---|
 | 1 | Baseline build + smoke run (unmodified DAMOV-SIM) | ✅ done |
-| 2 | Paper system config (Table II) + baseline workload run | ⏳ in progress |
-| 3 | DMA source tagging in Ramulator `Request` (no behaviour change) | ☐ |
+| 2 | Paper system config (Table II) + baseline workload run | ✅ done |
+| 3 | DMA source tagging in Ramulator `Request` (no behaviour change) | ⏳ in progress |
 | 4 | NIC model as a standalone class + unit tests | ☐ |
 | 5 | Integrate NIC injector at the ZSim–Ramulator boundary | ☐ |
 | 6 | Static baselines: Core-first, DMA-first | ☐ |
@@ -170,7 +170,7 @@ Simulator code/config changes are tracked separately in
   - **Reference value: Step 1 smoke = 26,637,522 cycles.** Used as a regression check in later steps.
 
 ### Step 2: Table II config
-- Status: in progress
+- Status: ✅ DONE (run 2)
 - Files: see SIMULATOR_CHANGES.md § Step 2.
   - New: `ramulator-configs/DDR4-occarb.cfg`, `templates/template_occarb.cfg`,
     `occarb/rebuild.sh`, `occarb/lib.sh`, `occarb/step2/run_check.sh`.
@@ -222,4 +222,35 @@ Simulator code/config changes are tracked separately in
     cache-set and DRAM bank/row mapping shift, and so do the cycles. If this is right, any
     code change (including every later OCCARB step) will shift absolute cycles slightly.
   - Next check: is `stream_copy` PIE (`file`)? Also run Step 2 with the restored build.
-- Run 2: _(pending)_
+- Run 2 (with the script fixes; build includes the Controller.h edit):
+  - 2a PASS: Step 1 deterministic and = 26,587,526. So a given build is reproducible, which
+    supports the layout hypothesis.
+  - 2b PASS; 2c all PASS: 4 cores, caches, 1200 MHz, queue depth 64, reads 909,128 / writes 385,091.
+  - 2d WARN: two identical 4-core runs gave 15,285,537 vs 15,303,697 (**0.119%**). Read/write
+    counts also differ slightly from run 1. Multi-threaded ZSim runs are not bit-deterministic:
+    host thread scheduling changes the interleaving.
+  - 2e PASS: q32 = 14,988,729 vs q64 = 15,285,537. The knob is live.
+    - Observation: the 32-entry queue is ~1.9% *faster* than 64 for STREAM ×4. That is ≫ the 0.12%
+      noise, so it is a real effect, probably the longer write-drain bursts with a 64-entry
+      writeq (watermarks at 0.8/0.2 × max). We keep 64 as specified in Table II.
+  - **T_alone (STREAM Copy ×4, 40M instrs, Table II) = 15,285,537 cycles** (±0.12%).
+- Methodology decisions from Step 2:
+  1. Multi-core noise floor ≈ 0.12%. Every multi-core data point (T_alone and T_overlap) is
+     run **3 times and reported as the mean**, with min–max. Effects smaller than ~0.5% are not claimed.
+  2. Single-core runs are bit-deterministic within one build, so they serve as exact regression tests.
+  3. Code changes shift absolute cycles slightly (layout), so a cross-build regression uses a 0.5%
+     tolerance. S = T_overlap/T_alone always uses one build.
+- Open: `file ../workloads/STREAM/stream_copy` (PIE or not). Output not received yet.
+
+### Step 3: DMA source tag
+- Status: in progress
+- Change: `ramulator/Request.h` gets `bool is_dma = false;` right after `int coreid = -1;`.
+  The in-class initializer covers all 4 constructors, so the existing core-request paths in
+  `src/ramulator_mem_ctrl.cpp` (`tick()`, `enqueue()`) need no edit.
+- Checks:
+  - 3a: the field is present, and both `libramulator.so` and `libzsim.so` were rebuilt after the edit.
+  - 3b: standalone unit test `occarb/step3/test_request.cc`: is_dma is false for all 4 constructors,
+    survives a copy, and leaves other fields intact.
+  - 3c: Step 1 regression, deterministic and within 0.5% of 26,587,526.
+- Pre-check (Claude container): the unit test passes 6/6, and Ramulator compiles with the new field.
+- Run 1: _(pending)_

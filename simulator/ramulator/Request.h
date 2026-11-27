@@ -20,6 +20,8 @@ public:
     long reqid = -1;
     // specify which core this request sent from, for virtual address translation
     int coreid = -1;
+    // OCCARB: request source. false = core (cache hierarchy), true = NIC DMA (cache-bypassing)
+    bool is_dma = false;
 
     enum class Type
     {

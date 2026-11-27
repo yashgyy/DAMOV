@@ -343,3 +343,13 @@ Simulator code/config changes are tracked separately in
     time is not. This must be fixed before any slowdown can be measured: S for OCCARB is expected
     to be in the 1.0–2.0 range, and the effects between policies may be a few %.
   - Next: diagnose where the variance comes from (per-core instructions/cycles, thread sync in STREAM).
+- Diagnosis 1 (per-core zsim.out, both runs):
+  - Instructions per core are ≈10.0M in both runs (9.97–10.04M), so the 40M budget is split evenly.
+  - All 4 cores report the same cycles within 0.02% (they advance together).
+  - **Not** a termination/imbalance effect. Same work, same DRAM request counts, ~10% different time.
+  - STREAM is OpenMP (`#pragma omp parallel`, `stream.c:254-268`), and its ROI comes from `zsim_hooks.h`.
+  - Hypothesis: the 4 sequential streams share the DRAM banks. Their relative progress (set by
+    host-dependent thread start skew) decides how often they evict each other's open rows, i.e.
+    the row-hit vs row-conflict mix, which then persists for the whole run.
+  - Test: compare the `row_hits` / `row_misses` / `row_conflicts` stats (`ramulator/Memory.h:248-260`)
+    of the two runs.

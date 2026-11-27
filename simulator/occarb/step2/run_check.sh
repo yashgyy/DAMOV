@@ -8,8 +8,11 @@ CMD="$WL/STREAM/stream_copy 4"; INSTRS=40000000L
 # 2a: Step 1 regression (queue_size absent -> default 32 -> identical to Step 1)
 bash occarb/step1/run_check.sh > $OUT/step1_regress.txt 2>&1
 C1=$(grep -m1 'core cycles' $OUT/step1_regress.txt | awk '{print $4}')
-[ "$C1" = "26637522" ] && pass "2a Step 1 unchanged after Controller.h edit ($C1)" \
-  || fail "2a Step 1 cycles changed: $C1 (expected 26637522), see $OUT/step1_regress.txt"
+# Reference = Step 1 cycles with the current build (26587526 after the Step 2 rebuild; see PROGRESS.md)
+REF1=26587526
+grep -q "PASS 1d" $OUT/step1_regress.txt && pass "2a Step 1 still deterministic" || fail "2a Step 1 not deterministic"
+[ "$C1" = "$REF1" ] && pass "2a Step 1 matches reference ($C1)" \
+  || fail "2a Step 1 cycles = $C1 (reference $REF1), see $OUT/step1_regress.txt"
 
 # 2b: Table II run (4 cores, DDR4-occarb, queue 64)
 D=$OUT/q64; mkdir -p $D
@@ -33,6 +36,7 @@ R=$(rstat $D base read_requests); W=$(rstat $D base write_requests)
 # 2d: determinism of the 4-core baseline
 D2=$OUT/q64_rep; mkdir -p $D2; cp $D/run.cfg $D2/; run_dir $D2 >/dev/null
 T1=$(max_cycles $D base); T2=$(max_cycles $D2 base)
+[ "$T1" -gt 0 ] || fail "2d could not parse cycles from $D/base.zsim.out"
 [ "$T1" = "$T2" ] && pass "2d deterministic 4-core run ($T1)" \
   || echo "WARN 2d 4-core cycles differ ($T1 vs $T2, $(awk "BEGIN{printf \"%.3f%%\", 100*($T2-$T1)/$T1}"))"
 

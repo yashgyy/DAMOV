@@ -191,4 +191,21 @@ Simulator code/config changes are tracked separately in
     (line ~189), instead of inside the constructor. The anchor text appears twice in the file.
   - Fix: move the 6 lines into the constructor, right after the call `fake_ideal_DRAM(configs);` (~line 230).
   - Lesson: from now on, every edit gives anchor context that is unique in the file, plus a grep to verify placement.
-- Run 1: _(pending)_
+- Rebuild attempt 2: OK (after moving the edit into the constructor).
+- Run 1:
+  - 2b PASS; 2c all PASS. The run shows 4 cores, L1d/L1i 32 kB, L2 256 kB, L3 8 MB,
+    mem freq 1200 MHz, queue depth 64, reads = 909,166, writes = 384,896.
+  - 2d/2e/T_alone read 0. **This was a script bug**: `max_cycles` used `[[:space:]]` inside awk,
+    and this system's awk is **mawk**, which doesn't support POSIX character classes. 2d
+    "passed" as 0 == 0, which was a false pass.
+    - Fix: the matching is now done by grep (`lib.sh`); 2d fails if cycles parse as 0.
+  - 2a FAIL: Step 1 = **26,587,526** cycles after the rebuild vs 26,637,522 before (−0.19%).
+    - Hypothesis: this is not a behaviour change. Without `queue_size`, the edit only adds a
+      `printf`. The difference comes from the rebuild itself: the earlier `libramulator.so` was a
+      pre-existing build ("up to date"), and a new tool binary shifts Pin/app memory layout, so
+      physical addresses and DRAM bank mapping change.
+    - Verification requested (2a-revert): remove the 6 lines, rebuild, rerun Step 1. If that also
+      gives 26,587,526, the edit is behaviour-neutral, and 26,587,526 becomes the reference.
+  - Lesson: compare cycles only within one build. Every rebuild re-baselines T_alone, and
+    S = T_overlap/T_alone always uses the same binary for both runs.
+- Run 2: _(pending)_

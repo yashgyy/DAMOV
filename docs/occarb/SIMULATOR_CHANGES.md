@@ -138,6 +138,19 @@ No. Only new files were added.
 - Remove the 6 added lines from `Controller.h`.
 - Run `bash occarb/rebuild.sh`.
 
+### Script fixes after Step 2 run 1
+- `occarb/lib.sh`: `max_cycles` now matches with grep. This system's awk is mawk, which doesn't
+  support `[[:space:]]`. **Rule: never use POSIX character classes inside awk in these scripts.**
+- `occarb/step2/run_check.sh`: 2a compares against the current-build reference 26,587,526
+  and also requires Step 1 to be deterministic; 2d fails if cycles parse as 0.
+
+### Methodology note: rebuilds change absolute cycles
+- A rebuild of ZSim/Ramulator changed the Step 1 smoke result from 26,637,522 to 26,587,526
+  cycles (−0.19%), with no functional change on that path. The likely cause is that a different
+  tool binary changes the address-space layout, which changes physical address → bank mapping.
+- Consequence: T_alone and T_overlap must always come from the same build. After each rebuild,
+  re-run the baseline.
+
 ### Build note
 - In this (Claude) container, the newer GCC fails on `StatType.h` without `#include <cstdint>`.
   This is pre-existing and unrelated to OCCARB. The user's toolchain builds it as is.

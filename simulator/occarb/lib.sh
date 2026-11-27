@@ -20,7 +20,8 @@ run_dir(){
 }
 
 # max_cycles DIR STATS -> max per-core cycles from <STATS>.zsim.out (= execution time)
-max_cycles(){ awk '/^[[:space:]]+cycles:/{if($2>m)m=$2}END{print m+0}' "$1/$2.zsim.out" 2>/dev/null; }
+#   (grep does the matching: mawk on this system has no [[:space:]] support)
+max_cycles(){ grep -E '^\s+cycles:' "$1/$2.zsim.out" 2>/dev/null | awk '{if($2>m)m=$2}END{print m+0}'; }
 # ncores DIR STATS -> number of simulated cores in zsim.out
 ncores(){ grep -cE '^[[:space:]]+core-[0-9]+:' "$1/$2.zsim.out" 2>/dev/null; }
 # rstat DIR STATS NAME -> Ramulator stat value

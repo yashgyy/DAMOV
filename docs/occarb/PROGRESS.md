@@ -208,4 +208,18 @@ Simulator code/config changes are tracked separately in
       gives 26,587,526, the edit is behaviour-neutral, and 26,587,526 becomes the reference.
   - Lesson: compare cycles only within one build. Every rebuild re-baselines T_alone, and
     S = T_overlap/T_alone always uses the same binary for both runs.
+- 2a-revert test (6 lines removed → rebuild → Step 1 → edit restored → rebuild):
+  - Without the edit, the result is **26,637,522**, the original value. With the edit, it is 26,587,526.
+  - **The hypothesis "the rebuild itself shifted the timing" is refused.** The difference
+    follows the edit.
+  - Code inspection: Step 1 uses `DDR4-config.cfg`, which has no `queue_size` key, and
+    `Config::operator[]` returns "" for missing keys (`Config.h:35-40`). So the `if` body
+    never runs, and the only executed addition is a `printf` to stdout. Neither can change
+    scheduling logic.
+  - New hypothesis: **memory-layout sensitivity.** Pin loads `libzsim.so`/`libramulator.so` into
+    the application's address space. Changing the library's size moves where the (possibly PIE)
+    application and its arrays are placed. ZSim uses virtual line addresses directly, so
+    cache-set and DRAM bank/row mapping shift, and so do the cycles. If this is right, any
+    code change (including every later OCCARB step) will shift absolute cycles slightly.
+  - Next check: is `stream_copy` PIE (`file`)? Also run Step 2 with the restored build.
 - Run 2: _(pending)_

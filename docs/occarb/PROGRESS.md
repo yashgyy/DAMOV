@@ -130,4 +130,14 @@ Simulator code/config changes are tracked separately in
     simulator.** DAMOV names its output `<outputDir>/<sim.stats>.zsim.out`
     (`src/init.cpp:845`), here `smoke.zsim.out`, not the stock ZSim name `zsim.out`.
   - Fix: `run_check.sh` now reads `smoke.zsim.out` (2 lines changed).
-- Run 2: _(pending)_
+- Run 2 (after the script fix):
+  - 1a PASS. 1b/1c/1d FAIL: no `smoke.zsim.out` was written.
+  - `zsim.log` ends with `C: Injector exited with signal 6` / `E: Wait for injector failed`.
+    Pin 2.14 aborted while injecting into the process, so the target never ran.
+    ZSim's harness still exits 0, which is why rc=0.
+  - On kernels >= 4.x, ZSim already forces `-injection parent` (`src/pin_cmd.cpp:71-77`).
+  - Suspected causes (being diagnosed):
+    - ptrace blocked (Docker without `SYS_PTRACE`/seccomp, or Yama `ptrace_scope` != 0);
+    - Pin 2.14 failing on the host's modern `dd` binary/glibc.
+  - Diagnostics requested: kernel/OS, ptrace_scope, bare Pin on `/bin/ls`, stock `tests/simple.cfg`.
+- Run 3: _(pending)_

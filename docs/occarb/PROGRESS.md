@@ -36,8 +36,9 @@ Simulator code/config changes are tracked separately in
 | 1 | Baseline build + smoke run (unmodified DAMOV-SIM) | ✅ done |
 | 2 | Paper system config (Table II) + baseline workload run | ✅ done |
 | 3 | DMA source tagging in Ramulator `Request` (no behaviour change) | ✅ done |
-| 4 | NIC model as a standalone class + unit tests | ⏳ in progress |
-| 5 | Integrate NIC injector at the ZSim–Ramulator boundary | ☐ |
+| 4 | NIC model as a standalone class + unit tests | ✅ done |
+| 5a | Memory clock fidelity: optional CPU/DRAM clock divider | ⏳ in progress |
+| 5b | Integrate NIC injector at the ZSim–Ramulator boundary | ☐ |
 | 6 | Static baselines: Core-first, DMA-first | ☐ |
 | 7 | OCCARB scheduler (3 modes + hysteresis) | ☐ |
 | 8 | BLISS baseline | ☐ |
@@ -265,7 +266,7 @@ Simulator code/config changes are tracked separately in
     not even shift memory layout.
 
 ### Step 4: NIC model (standalone)
-- Status: in progress
+- Status: ✅ DONE (run 1)
 - New `ramulator/NicModel.h`: header-only, no dependencies. Not yet included by the simulator.
 - Model (one `tick()` per cycle):
   - Link window: active for `rho·period_cycles` of every `period_cycles`.
@@ -293,4 +294,26 @@ Simulator code/config changes are tracked separately in
   - 4i: byte conservation.
   - 4j: no re-issue of in-flight bytes, and tail flush.
 - Pre-check (Claude container, g++ -Wall -Wextra): 24/24 PASS, no warnings.
+- Run 1 (user): **ALL NIC TESTS PASSED** (24/24).
+
+### Step 5a: Memory clock fidelity (found while preparing the NIC integration)
+- Status: in progress
+- Finding: `Ramulator::tick()` (`src/ramulator_mem_ctrl.cpp`) returns 1, so it runs every **CPU** cycle
+  (2.4 GHz), and DAMOV left the clock divider commented out. Ramulator therefore advances one
+  DRAM clock per CPU cycle. DDR4-2400R has tCK = 0.833 ns (1.2 GHz), so the simulated DRAM runs
+  **2× too fast**: about 2× the real bandwidth, and DRAM latencies in ns are halved.
+  - For OCCARB this matters directly. The paper is about DMA/core contention for DRAM bandwidth;
+    doubling the bandwidth would hide most of the slowdown.
+- Fix: the divider is now optional through `sys.mem.clockDivide` (default false = DAMOV behaviour).
+  `template_occarb.cfg` sets it to **true**. With freqRatio = ceil(2400/1200.5) = 2, DRAM ticks
+  every 2nd CPU cycle.
+  - Consequence: Step 2's T_alone (15,285,537) was measured with fast DRAM and is superseded by
+    the 5a value.
+- Checks (`occarb/step5a/run_check.sh`):
+  - 5a-1: the default path is unchanged (Step 1 within 0.5% of 26,587,526, log says OFF).
+  - 5a-2: 4-core STREAM, OFF vs ON:
+    - ON log says "every 2 CPU cycles";
+    - CPU cycles / Ramulator `dram_cycles` ≈ 2 (ON) and ≈ 1 (OFF);
+    - ON bandwidth ≤ 19.2 GB/s (DDR4-2400 peak);
+    - ON is slower than OFF.
 - Run 1: _(pending)_

@@ -31,7 +31,14 @@ Legend: **[NEW]** new file · **[MOD]** modified existing file · **[DEL]** dele
 | `simulator/occarb/step4/test_nic.cc` | NEW | 4 | NIC unit tests (4a–4j) |
 | `simulator/occarb/step4/run_check.sh` | NEW | 4 | Builds and runs the NIC unit tests |
 
-Existing simulator source files modified so far: `ramulator/Controller.h` (Step 2), `ramulator/Request.h` (Step 3).
+| `simulator/src/ramulator_mem_ctrl.h` | **MOD** | 5a | `clockDivide` flag + `setClockDivide()` |
+| `simulator/src/ramulator_mem_ctrl.cpp` | **MOD** | 5a | Optional clock divider in `tick()`; setter |
+| `simulator/src/init.cpp` | **MOD** | 5a | Reads `sys.mem.clockDivide` (default false) |
+| `simulator/templates/template_occarb.cfg` | MOD | 5a | `clockDivide = true;` |
+| `simulator/occarb/step5a/run_check.sh` | NEW | 5a | Step 5a checks |
+
+Existing simulator source files modified so far: `ramulator/Controller.h` (Step 2), `ramulator/Request.h` (Step 3),
+`src/ramulator_mem_ctrl.h`, `src/ramulator_mem_ctrl.cpp`, `src/init.cpp` (Step 5a).
 
 ---
 
@@ -228,3 +235,48 @@ No. Nothing includes `NicModel.h` yet (the check script verifies this), so no re
 
 ### Undo
 `rm ramulator/NicModel.h; rm -rf occarb/step4`
+
+---
+
+## Step 5a: Optional CPU/DRAM clock divider
+
+### Why
+- ZSim calls `Ramulator::tick()` every CPU cycle (it returns delay 1), and DAMOV had commented out
+  the divider. Ramulator therefore ran one DRAM clock per CPU cycle.
+- For DDR4-2400 (tCK 0.833 ns = 1.2 GHz) with a 2.4 GHz CPU, DRAM was 2× faster than real.
+  That doubles the bandwidth that DMA and cores compete for, which is the effect OCCARB studies.
+
+### Changes
+- **[MOD] `src/ramulator_mem_ctrl.h`**
+  - New private member after `unsigned long long tickCounter = 0;`:
+    `bool clockDivide = false;`
+  - New public method after `void enqueue(...)`: `void setClockDivide(bool enable);`
+- **[MOD] `src/ramulator_mem_ctrl.cpp`**
+  - `tick()`: the 4 commented divider lines are replaced with
+    ```cpp
+    if (!clockDivide || (tickCounter % freqRatio) == 0) {
+      wrapper->tick();
+    }
+    tickCounter++;
+    ```
+  - New `Ramulator::setClockDivide(bool)` before `finish()`. It logs
+    `[RAMULATOR] Clock divider ON/OFF (DRAM ticks every N CPU cycles)`.
+  - `freqRatio = ceil(cpuFreq/memFreq)` was already computed by DAMOV: 2 for 2400/1200.
+- **[MOD] `src/init.cpp`**, in the `type == "Ramulator"` branch after `zinfo -> ramulator = ...;`:
+  ```cpp
+  static_cast<Ramulator*>(mem)->setClockDivide(config.get<bool>("sys.mem.clockDivide", false));  // OCCARB
+  ```
+- **[MOD] `templates/template_occarb.cfg`**: `mem` block gains `clockDivide = true;`.
+- **[NEW] `occarb/step5a/run_check.sh`**.
+
+### Simulator behaviour changed?
+- Configs without `clockDivide` (all DAMOV configs, Step 1): no change, apart from 1 log line.
+- OCCARB configs (template): DRAM now advances at its real clock. All OCCARB baselines are
+  re-measured from Step 5a on.
+- Note: the overflow-queue retry in `tick()` still runs every CPU cycle. It only retries `send()`,
+  which is harmless.
+
+### Undo
+- Revert the 3 source edits.
+- Remove the template line (or set `clockDivide = false;`).
+- Run `bash occarb/rebuild.sh`.

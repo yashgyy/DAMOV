@@ -47,6 +47,7 @@ class Ramulator : public MemObject { //one Ramulator controller
     unsigned freqRatio;
     bool pim_mode;
     unsigned long long tickCounter = 0;
+    bool clockDivide = false;  // OCCARB: tick DRAM at its own clock (1 of every freqRatio CPU cycles)
     int cpu_tick, mem_tick, tick_gcd;
     string application_name;
     ramulator::RamulatorWrapper* wrapper;
@@ -80,6 +81,9 @@ class Ramulator : public MemObject { //one Ramulator controller
     // Event-driven simulation (phase 2)
     uint32_t tick(uint64_t cycle);
     void enqueue(RamulatorAccEvent* ev, uint64_t cycle);
+
+    // OCCARB: enable the CPU/DRAM clock divider (sys.mem.clockDivide)
+    void setClockDivide(bool enable);
 
   private:
     std::function<void(ramulator::Request&)> read_cb_func;

@@ -381,6 +381,7 @@ MemObject* BuildMemoryController(Config& config, uint32_t lineSize, uint32_t fre
         mem = new Ramulator(ramulatorConfig, zinfo->numCores, lineSize, latency, domain, name, pimMode, application, frequency, record_memory_trace,networkOverhead);
         zinfo ->  ramulator_memory = true;
         zinfo -> ramulator = static_cast<Ramulator*>(mem);
+        static_cast<Ramulator*>(mem)->setClockDivide(config.get<bool>("sys.mem.clockDivide", false));  // OCCARB
     } else if (type == "Detailed") {
         // FIXME(dsm): Don't use a separate config file... see DDRMemory
         g_string mcfg = config.get<const char*>("sys.mem.paramFile", "");

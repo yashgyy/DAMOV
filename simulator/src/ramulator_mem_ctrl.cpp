@@ -159,11 +159,12 @@ uint64_t Ramulator::access(MemReq& req) {
 }
 
 uint32_t Ramulator::tick(uint64_t cycle) {
-  // REMOVE comments for clock divider (i.e., memory clock is different from host clock)
-  //if((tickCounter % freqRatio) == 0){
-  wrapper->tick();
-  //}
-  //tickCounter++;
+  // OCCARB: clock divider is optional (sys.mem.clockDivide). Off = original DAMOV behaviour
+  // (DRAM ticks every CPU cycle); on = DRAM ticks once every freqRatio CPU cycles.
+  if (!clockDivide || (tickCounter % freqRatio) == 0) {
+    wrapper->tick();
+  }
+  tickCounter++;
 
   if(overflowQueue.size() > 0){
     RamulatorAccEvent *ev = overflowQueue.front();
@@ -195,6 +196,11 @@ uint32_t Ramulator::tick(uint64_t cycle) {
 
   curCycle++;
   return 1;
+}
+
+void Ramulator::setClockDivide(bool enable) {
+  clockDivide = enable;
+  info("[RAMULATOR] Clock divider %s (DRAM ticks every %u CPU cycles)", enable ? "ON" : "OFF", enable ? freqRatio : 1);
 }
 
 void Ramulator::finish(){

@@ -316,4 +316,19 @@ Simulator code/config changes are tracked separately in
     - CPU cycles / Ramulator `dram_cycles` ≈ 2 (ON) and ≈ 1 (OFF);
     - ON bandwidth ≤ 19.2 GB/s (DDR4-2400 peak);
     - ON is slower than OFF.
-- Run 1: _(pending)_
+- Run 1: **all PASS**.
+  - 5a-1: Step 1 = 26,587,526, **bit-identical**; the log says OFF.
+  - 5a-2 OFF: cycles 16,577,188; reads 909,127, writes 384,844; dram_cycles 16,577,000 (ratio 1.000); **11.99 GB/s**.
+  - 5a-2 ON: cycles 22,159,754; reads 909,103, writes 384,609; dram_cycles 11,079,500 (ratio 2.000); **8.97 GB/s**.
+  - With the real DRAM clock, STREAM×4 is **1.337× slower**, with the same request count.
+    So 1/3 of the original run time was hidden by the 2× DRAM clock.
+  - STREAM×4 reaches 8.97 GB/s, which is 47% of the 19.2 GB/s peak. A 10 GbE NIC (1.25 GB/s per
+    direction) adds ~14% (RX only) or ~28% (RX+TX) on top of that.
+  - **New T_alone (STREAM Copy ×4, 40M instrs, Table II, clockDivide ON) = 22,159,754 cycles.**
+- ⚠ Open question raised by run 1: OFF here (16,577,188) vs Step 2 run 2 (15,285,537) is an **8.4%**
+  difference for the same configuration (no divider). Only the build differs, and the DRAM request
+  counts are equal to within 0.03%. The within-build noise measured in Step 2 was 0.12%.
+  - Either the cross-build layout effect is much larger for multi-core runs, or the within-build
+    variance is larger than one pair of runs showed.
+  - Check 5a-3 (requested): rerun `occarb/step2/run_check.sh` on the current build. Its 2d runs the
+    no-divider 4-core config twice.

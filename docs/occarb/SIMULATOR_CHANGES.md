@@ -38,9 +38,18 @@ Existing simulator source files modified so far: **none**.
     `ramulator-configs/` into each run directory, because the config path is relative.
   - Checks:
     - 1a: build outputs exist.
-    - 1b: the run exits 0 and writes `zsim.out`.
+    - 1b: the run exits 0 and writes `smoke.zsim.out`.
     - 1c: core cycles > 0 and Ramulator `numberofreads_s_0` > 0.
     - 1d: the cycle count is identical across the two runs.
+
+- **[MOD, our own file] `simulator/occarb/step1/run_check.sh`** (after run 1):
+  - It now reads `smoke.zsim.out` instead of `zsim.out`.
+
+### DAMOV output-file naming (important for all later scripts)
+DAMOV changed ZSim's output naming. Every output goes to the run's working directory
+(`getcwd`, `src/zsim_harness.cpp:332`) with the `sim.stats` value as a prefix:
+- `<stats>.zsim.out`, `<stats>.zsim.h5`, `<stats>.zsim-ev.h5`, `<stats>.zsim-cmp.h5` (`src/init.cpp:842-845`)
+- `<stats>.ramulator.stats` (`src/ramulator_mem_ctrl.cpp:105`)
 
 ### Simulator behaviour changed?
 No. Only new files were added.

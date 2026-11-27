@@ -8,14 +8,14 @@ pass(){ echo "PASS $1"; }; fail(){ echo "FAIL $1"; FAILED=1; }; FAILED=0
 [ -x build/opt/zsim ] && pass "1a zsim binary" || fail "1a build/opt/zsim missing"
 [ -f ramulator/libramulator.so ] && pass "1a libramulator.so" || fail "1a libramulator.so missing"
 
-cycles(){ grep -m1 -E '^\s+cycles:' "$1/zsim.out" | awk '{print $2}'; }
+cycles(){ grep -m1 -E '^\s+cycles:' "$1/smoke.zsim.out" | awk '{print $2}'; }
 run(){ rm -rf "$1"; mkdir -p "$1"; (cd "$1" && ln -sf "$SIM/ramulator-configs" . && \
        "$SIM/build/opt/zsim" "$SIM/occarb/step1/smoke.cfg" > zsim.log 2>&1); echo $?; }
 
 # 1b: run completes
 R1=occarb/step1/out_run1
 rc=$(run $R1)
-[ "$rc" = 0 ] && [ -f $R1/zsim.out ] && pass "1b smoke run (rc=0, zsim.out)" || fail "1b rc=$rc, see $R1/zsim.log"
+[ "$rc" = 0 ] && [ -f $R1/smoke.zsim.out ] && pass "1b smoke run (rc=0, smoke.zsim.out)" || fail "1b rc=$rc, see $R1/zsim.log"
 
 # 1c: non-zero activity in core and in Ramulator
 C1=$(cycles $R1); echo "     core cycles = ${C1:-none}"

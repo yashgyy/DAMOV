@@ -52,7 +52,7 @@ Simulator code/config changes are tracked separately in
 - Run a small known program through ZSim with Ramulator DDR4 as main memory.
 - Checks:
   - 1a: `build/opt/zsim` exists, and `ramulator/libramulator.so` exists.
-  - 1b: the smoke run exits 0 and writes `zsim.out` / `zsim-ev.h5`.
+  - 1b: the smoke run exits 0 and writes `<sim.stats>.zsim.out` (DAMOV naming).
   - 1c: `zsim.out` shows non-zero instructions/cycles for the cores, and the
     Ramulator stats show non-zero reads (memory traffic really reaches Ramulator).
   - 1d: rerunning gives identical cycle counts (determinism, needed for S = T_overlap/T_alone).
@@ -123,4 +123,11 @@ Simulator code/config changes are tracked separately in
 - How to run (from `simulator/`):
   1. `bash scripts/compile.sh` (if not built yet)
   2. `bash occarb/step1/run_check.sh`
-- Results: _(paste the PASS/FAIL output here)_
+- Run 1 (2026-11-27):
+  - Build OK: libconfig installed, `libramulator.so` up to date, ZSim `build/opt` up to date.
+  - 1a PASS (both build outputs present).
+  - 1b/1c/1d FAIL, but ZSim exited with rc=0. **Cause: a bug in the check script, not in the
+    simulator.** DAMOV names its output `<outputDir>/<sim.stats>.zsim.out`
+    (`src/init.cpp:845`), here `smoke.zsim.out`, not the stock ZSim name `zsim.out`.
+  - Fix: `run_check.sh` now reads `smoke.zsim.out` (2 lines changed).
+- Run 2: _(pending)_

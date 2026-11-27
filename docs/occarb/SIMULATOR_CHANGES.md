@@ -39,7 +39,7 @@ Existing simulator source files modified so far: **none**.
   - Checks:
     - 1a: build outputs exist.
     - 1b: the run exits 0 and writes `smoke.zsim.out`.
-    - 1c: core cycles > 0 and Ramulator `numberofreads_s_0` > 0.
+    - 1c: core cycles > 0 and Ramulator `read_requests` > 0 (originally `numberofreads_s_0`, which is a DRAMPower-only stat).
     - 1d: the cycle count is identical across the two runs.
 
 - **[MOD, our own file] `simulator/occarb/step1/run_check.sh`** (after run 1):
@@ -50,6 +50,10 @@ Existing simulator source files modified so far: **none**.
     `gmMBytes = 8192`, `deadlockDetection = false`, `startFastForwarded = True`. The workload is
     `WORKLOADS_ROOT/STREAM/stream_copy 1` instead of `dd`.
   - `run_check.sh` replaces `WORKLOADS_ROOT` with `<repo>/workloads` and writes the result into each run directory.
+
+### Ramulator stats to use (lesson from Step 1)
+- Request counts: `read_requests`, `write_requests`, `incoming_requests` (`ramulator/Memory.h:176-199`).
+- `numberof*_s_<ch>` (`Controller.h:414+`) are DRAMPower energy counters. Don't use them for traffic.
 
 ### Required ZSim settings on this setup (lesson from Step 1)
 - `sim.pinOptions = "-ifeellucky"` is **mandatory**. Without it, Pin 2.14 aborts

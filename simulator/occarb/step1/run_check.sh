@@ -26,9 +26,11 @@ grep -q "Injector exited" $R1/zsim.log && fail "1b Pin injector crashed (see $R1
 C1=$(cycles $R1); echo "     core cycles = ${C1:-none}"
 [ -n "${C1:-}" ] && [ "$C1" -gt 0 ] && pass "1c core cycles > 0" || fail "1c no core cycles"
 RS=$(ls $R1/*.ramulator.stats 2>/dev/null | head -1)
-RD=$( [ -n "$RS" ] && grep -E 'numberofreads_s_0' "$RS" | awk '{print $2}')
-echo "     ramulator reads = ${RD:-none}  ($RS)"
-[ -n "${RD:-}" ] && awk "BEGIN{exit !($RD>0)}" && pass "1c Ramulator reads > 0" || fail "1c no Ramulator reads"
+rstat(){ [ -n "$RS" ] && grep -E "(^|[[:space:].])$1[[:space:]]" "$RS" | head -1 | awk '{print $2}'; }
+RD=$(rstat read_requests); WR=$(rstat write_requests)
+echo "     ramulator read_requests = ${RD:-none}, write_requests = ${WR:-none}  ($RS)"
+[ -n "${RD:-}" ] && awk "BEGIN{exit !($RD>0)}" && pass "1c Ramulator read_requests > 0" \
+  || { fail "1c no Ramulator reads"; echo "     first lines of $RS:"; head -15 "$RS"; }
 
 # 1d: determinism
 R2=occarb/step1/out_run2; run $R2 >/dev/null

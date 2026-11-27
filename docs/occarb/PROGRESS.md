@@ -150,4 +150,14 @@ Simulator code/config changes are tracked separately in
 - Fix: rewrote `smoke.cfg` (1 OOO core, DDR4, STREAM Copy, 20M instrs, `-ifeellucky`,
   `startFastForwarded`) and `run_check.sh` (substitutes the workloads path, checks the binary
   exists, detects "Injector exited").
-- Run 3: _(pending)_
+- Run 3:
+  - 1a PASS (zsim, libramulator.so, stream_copy).
+  - 1b PASS: `smoke.zsim.out` written.
+  - 1c: core cycles = **26,637,522**, PASS. Ramulator-reads check FAIL. The stat
+    `numberofreads_s_0` doesn't appear in the output; it is a DRAMPower energy counter
+    (`Controller.h:424`), not a general one.
+  - 1d PASS: deterministic (26,637,522 in both runs). Repeated runs of the same config are
+    therefore exactly reproducible, so S = T_overlap/T_alone needs no averaging.
+  - Fix: check the `read_requests` / `write_requests` stats (`Memory.h:182-188`) instead;
+    on failure the script prints the head of the stats file.
+- Run 4: _(pending)_

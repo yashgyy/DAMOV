@@ -26,3 +26,7 @@ max_cycles(){ grep -E '^\s+cycles:' "$1/$2.zsim.out" 2>/dev/null | awk '{if($2>m
 ncores(){ grep -cE '^[[:space:]]+core-[0-9]+:' "$1/$2.zsim.out" 2>/dev/null; }
 # rstat DIR STATS NAME -> Ramulator stat value
 rstat(){ grep -E "(^|[[:space:].])$3[[:space:]]" "$1/$2.ramulator.stats" 2>/dev/null | head -1 | awk '{print $2}'; }
+# zstat DIR STATS NAME -> first value of a zsim.out stat (e.g. nicRxPktsDropped)
+zstat(){ grep -E "^\s+$3:" "$1/$2.zsim.out" 2>/dev/null | head -1 | awk '{print $2}'; }
+# nic_set CFG KEY VALUE -> set a key inside the cfg (keys in the nic block are unique in the template)
+nic_set(){ sed -i -E "s/^(\s*$2 = )[^;]*;/\1$3;/" "$1"; }

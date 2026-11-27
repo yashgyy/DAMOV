@@ -37,8 +37,8 @@ Simulator code/config changes are tracked separately in
 | 2 | Paper system config (Table II) + baseline workload run | ✅ done |
 | 3 | DMA source tagging in Ramulator `Request` (no behaviour change) | ✅ done |
 | 4 | NIC model as a standalone class + unit tests | ✅ done |
-| 5a | Memory clock fidelity: optional CPU/DRAM clock divider | ⏳ in progress |
-| 5b | Integrate NIC injector at the ZSim–Ramulator boundary | ☐ |
+| 5a | Memory clock fidelity: optional CPU/DRAM clock divider | ✅ done |
+| 5b | Integrate NIC injector at the ZSim–Ramulator boundary | ⏳ in progress |
 | 6 | Static baselines: Core-first, DMA-first | ☐ |
 | 7 | OCCARB scheduler (3 modes + hysteresis) | ☐ |
 | 8 | BLISS baseline | ☐ |
@@ -297,7 +297,7 @@ Simulator code/config changes are tracked separately in
 - Run 1 (user): **ALL NIC TESTS PASSED** (24/24).
 
 ### Step 5a: Memory clock fidelity (found while preparing the NIC integration)
-- Status: in progress
+- Status: ✅ DONE
 - Finding: `Ramulator::tick()` (`src/ramulator_mem_ctrl.cpp`) returns 1, so it runs every **CPU** cycle
   (2.4 GHz), and DAMOV left the clock divider commented out. Ramulator therefore advances one
   DRAM clock per CPU cycle. DDR4-2400R has tCK = 0.833 ns (1.2 GHz), so the simulated DRAM runs
@@ -367,6 +367,58 @@ Simulator code/config changes are tracked separately in
   - Relevance to OCCARB: this is the same mechanism DMA streams will trigger (sequential DMA
     streams breaking the cores' open rows), and the reason URGENT serves DMA "in row-hit bursts".
     Row-buffer hit rate should be reported as a supporting metric.
-- Methodology proposal (pending user decision): single-core validation for Steps 5b–8; the
-  multi-core repeat count is set in Step 9 from the measured variance of the real workloads;
-  Fig. 2 gets error bars.
+- **Methodology decision (user agreed):**
+  - Steps 5b–8 are validated with single-core runs, which are bit-deterministic.
+  - Step 9 measures the variance of the real workloads on 4 cores and sets the repeat count.
+  - Final results report mean ± spread, and Fig. 2 gets error bars.
+  - The risk "variance too large → needs dozens of runs" is deferred. The fallback, if needed,
+    is controlled thread start offsets.
+  - Paper impact, to write later:
+    - §III: one sentence on the DRAM clock fix;
+    - §III: one sentence on repeats/variance;
+    - §III: the NIC modelling choices;
+    - optional row-buffer hit-rate metric;
+    - error bars in Fig. 2.
+
+### Step 5b: NIC DMA injector integrated
+- Status: in progress
+- Design:
+  - The ZSim-side `Ramulator` object owns a `ramulator::NicModel`, ticked from `Ramulator::tick()`
+    every CPU cycle (`cycle_hz` = CPU frequency).
+  - Each cycle it issues at most 1 RX DMA write and 1 TX DMA read, within `maxInflight` outstanding
+    requests per direction.
+  - Requests are sequential 64 B lines: the RX ring at 7 GB, the TX source at 7.5 GB, each wrapping
+    at 256 MB. They are marked `is_dma = true` and use `coreid = 0`, because Ramulator's per-core
+    stat vectors need a valid index.
+  - They have their own completion callbacks, so the core-request bookkeeping is untouched.
+    A refused send is retried the next cycle.
+  - NIC issue runs **after** the core overflow-queue retry in `tick()`, so retried core requests
+    are not starved of queue slots.
+  - Config: `sys.mem.nic.{enable, bufKB, linkGbps, rho, periodCycles, pktBytes, rx, tx, occBits,
+    maxInflight, rxBaseMB, txBaseMB, regionMB}`. All keys are read even when disabled
+    (zsim `strictConfig`). Doubles need a decimal point.
+  - Stats in `zsim.out` (mem section), only when enabled:
+    - `nicCycles`, `nicActiveCycles`
+    - `nicRxPktsArrived` / `Dropped` / `BytesAccepted` / `BytesWritten`, `nicRxDmaWrites`, `nicRxDmaLat`, `nicRxSendFails`
+    - `nicTxBytesRead` / `BytesSent` / `PktsSent` / `Underruns`, `nicTxDmaReads`, `nicTxDmaLat`, `nicTxSendFails`
+    - `nicLevel0..3Cycles`
+  - The occupancy level is computed but **not yet used by the scheduler** (Steps 6–7).
+- Checks (`occarb/step5b/run_check.sh`, 1-core STREAM, 20M instrs, Table II, clock divider ON):
+  - b0: Step 4 tests pass; Step 1 within 0.5%; no nic block → "[NIC] disabled".
+  - b1: nic block with `enable = false` → disabled, no NIC stats.
+  - b2: enabled with ρ = 0 → zero DMA and **bit-identical cycles** to disabled.
+  - b3: RX 10 GbE:
+    - nicCycles ≈ core cycles;
+    - accepted bytes = 1.25 GB/s × active time (±1%);
+    - zero loss;
+    - written ≥ accepted − S;
+    - the Ramulator write_requests delta equals the DMA writes (±2%);
+    - S > 1;
+    - deterministic.
+  - b4: TX 10 GbE: sends at link rate (±2%); underruns ≤ 1%; the read_requests delta equals the DMA reads.
+  - b5: starved engine (maxInflight 1, 16 KB, 25 GbE) → loss > 0.
+  - b6: S(RX+TX 25G) > S(RX 10G) > 1.
+  - b7: level residency sums to nicCycles.
+- Pre-check (Claude container): `src/ramulator_mem_ctrl.cpp` and `src/init.cpp` pass `g++ -fsyntax-only`
+  against the real ZSim/Pin headers. `nic_set` was tested on the template.
+- Run 1: _(pending)_

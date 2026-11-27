@@ -32,6 +32,7 @@
 #include "zsim.h"
 #include "RamulatorWrapper.h"
 #include "Request.h"
+#include "NicModel.h"  // OCCARB
 
 using namespace std; // NOLINT(build/namespaces)
 
@@ -122,6 +123,33 @@ void Ramulator::initStats(AggregateStat* parentStat) {
   profTotalRdLat.init("rdlat", "Total latency experienced by read requests"); memStats->append(&profTotalRdLat);
   profTotalWrLat.init("wrlat", "Total latency experienced by write requests"); memStats->append(&profTotalWrLat);
   reissuedAccesses.init("reissuedAccesses", "Number of accesses that were reissued due to full queue"); memStats->append(&reissuedAccesses);
+
+  // OCCARB: NIC statistics (only when a NIC is attached)
+  if (nic) {
+    auto add = [memStats](const char* n, const char* d, std::function<uint64_t()> f) {
+      auto st = makeLambdaStat(f); st->init(n, d); memStats->append(st);
+    };
+    add("nicCycles", "Cycles the NIC model was ticked", [this]() { return nic->cycle; });
+    add("nicActiveCycles", "Cycles with the link active (overlap window)", [this]() { return nic->active_cycles; });
+    add("nicRxPktsArrived", "RX packets arrived from the link", [this]() { return nic->rx_pkts_arrived; });
+    add("nicRxPktsDropped", "RX packets dropped (buffer full) = packet loss", [this]() { return nic->rx_pkts_dropped; });
+    add("nicRxBytesAccepted", "RX bytes accepted into the buffer", [this]() { return (uint64_t)nic->rx_bytes_accepted; });
+    add("nicRxBytesWritten", "RX bytes written to DRAM (completed DMA writes)", [this]() { return (uint64_t)nic->rx_bytes_written; });
+    add("nicRxDmaWrites", "DMA write requests completed", [this]() { return nicRxDone; });
+    add("nicRxDmaLat", "Sum of DMA write latencies (CPU cycles)", [this]() { return nicRxLatSum; });
+    add("nicRxSendFails", "DMA write sends refused (controller queue full)", [this]() { return nicRxSendFails; });
+    add("nicTxBytesRead", "TX bytes read from DRAM (completed DMA reads)", [this]() { return (uint64_t)nic->tx_bytes_read; });
+    add("nicTxBytesSent", "TX bytes sent on the link", [this]() { return (uint64_t)nic->tx_bytes_sent; });
+    add("nicTxPktsSent", "TX packets sent on the link", [this]() { return nic->tx_pkts_sent; });
+    add("nicTxUnderruns", "TX packet slots with no data ready (link idle)", [this]() { return nic->tx_underruns; });
+    add("nicTxDmaReads", "DMA read requests completed", [this]() { return nicTxDone; });
+    add("nicTxDmaLat", "Sum of DMA read latencies (CPU cycles)", [this]() { return nicTxLatSum; });
+    add("nicTxSendFails", "DMA read sends refused (controller queue full)", [this]() { return nicTxSendFails; });
+    add("nicLevel0Cycles", "Cycles at occupancy level 0", [this]() { return nicLevelCycles[0]; });
+    add("nicLevel1Cycles", "Cycles at occupancy level 1", [this]() { return nicLevelCycles[1]; });
+    add("nicLevel2Cycles", "Cycles at occupancy level 2", [this]() { return nicLevelCycles[2]; });
+    add("nicLevel3Cycles", "Cycles at occupancy level 3 (highest for 2-bit levels)", [this]() { return nicLevelCycles[3]; });
+  }
   parentStat->append(memStats);
 }
 
@@ -194,8 +222,81 @@ uint32_t Ramulator::tick(uint64_t cycle) {
     }
   }
 
+  if (nic) nicTick();  // OCCARB: after core retries, so retried core requests are not starved of queue slots
+
   curCycle++;
   return 1;
+}
+
+// ---- OCCARB: NIC DMA injector ----
+void Ramulator::setNic(const ramulator::NicParams& p, uint64_t rxBase, uint64_t txBase,
+                       uint64_t regionBytes, uint32_t maxInflight) {
+  nic = new ramulator::NicModel(p);
+  nicRxBase = rxBase; nicTxBase = txBase; nicRegion = regionBytes; nicMaxInflight = maxInflight;
+  nic_rx_cb_func = std::bind(&Ramulator::NIC_rx_write_cb, this, std::placeholders::_1);
+  nic_tx_cb_func = std::bind(&Ramulator::NIC_tx_read_cb, this, std::placeholders::_1);
+  info("[NIC] enabled: S=%.0f B/direction, link %.2f Gb/s (%.4f B/cycle at %.0f MHz), rho %.3f, period %lu, "
+       "rx %d tx %d, occBits %d, maxInflight %u, rxBase 0x%lx txBase 0x%lx region %lu B",
+       p.buf_bytes, p.link_gbps, nic->bytes_per_cycle_link(), p.cycle_hz / 1e6, p.rho, p.period_cycles,
+       p.rx_enable, p.tx_enable, p.occ_bits, maxInflight, rxBase, txBase, regionBytes);
+}
+
+void Ramulator::nicTick() {
+  nic->tick();
+  nicLevelCycles[nic->level()]++;
+
+  // RX: NIC buffer -> DRAM (cache-bypassing DMA write, sequential ring)
+  if (nic->want_rx_write() && nicRxInflightReqs < nicMaxInflight) {
+    double pending = nic->rx_fill - nic->rx_inflight;
+    uint32_t bytes = (uint32_t)std::min<double>(nic->p.line_bytes, pending);
+    long addr = (long)(nicRxBase + nicRxOff);
+    ramulator::Request req(addr, ramulator::Request::Type::WRITE, nic_rx_cb_func, 0);
+    req.is_dma = true;
+    if (wrapper->send(req)) {
+      uint32_t issued = nic->issue_rx_write();
+      assert(issued == bytes);
+      nicRxPending.insert(std::make_pair(addr, std::make_pair(issued, curCycle)));
+      nicRxInflightReqs++;
+      nicRxOff = (nicRxOff + nic->p.line_bytes) % nicRegion;
+    } else {
+      nicRxSendFails++;
+    }
+  }
+
+  // TX: DRAM -> NIC buffer (cache-bypassing DMA read, sequential)
+  if (nic->want_tx_read() && nicTxInflightReqs < nicMaxInflight) {
+    long addr = (long)(nicTxBase + nicTxOff);
+    ramulator::Request req(addr, ramulator::Request::Type::READ, nic_tx_cb_func, 0);
+    req.is_dma = true;
+    if (wrapper->send(req)) {
+      nic->issue_tx_read();
+      nicTxPending.insert(std::make_pair(addr, curCycle));
+      nicTxInflightReqs++;
+      nicTxOff = (nicTxOff + nic->p.line_bytes) % nicRegion;
+    } else {
+      nicTxSendFails++;
+    }
+  }
+}
+
+void Ramulator::NIC_rx_write_cb(ramulator::Request& req) {
+  auto it = nicRxPending.find(req._addr);
+  assert(it != nicRxPending.end());
+  nic->complete_rx_write(it->second.first);
+  nicRxLatSum += curCycle + 1 - it->second.second;
+  nicRxDone++;
+  nicRxInflightReqs--;
+  nicRxPending.erase(it);
+}
+
+void Ramulator::NIC_tx_read_cb(ramulator::Request& req) {
+  auto it = nicTxPending.find(req._addr);
+  assert(it != nicTxPending.end());
+  nic->complete_tx_read();
+  nicTxLatSum += curCycle + 1 - it->second;
+  nicTxDone++;
+  nicTxInflightReqs--;
+  nicTxPending.erase(it);
 }
 
 void Ramulator::setClockDivide(bool enable) {

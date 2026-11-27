@@ -45,6 +45,7 @@
 #include "debug_zsim.h"
 #include "dramsim_mem_ctrl.h"
 #include "ramulator_mem_ctrl.h"
+#include "NicModel.h"  // OCCARB
 #include "event_queue.h"
 #include "filter_cache.h"
 #include "galloc.h"
@@ -382,6 +383,28 @@ MemObject* BuildMemoryController(Config& config, uint32_t lineSize, uint32_t fre
         zinfo ->  ramulator_memory = true;
         zinfo -> ramulator = static_cast<Ramulator*>(mem);
         static_cast<Ramulator*>(mem)->setClockDivide(config.get<bool>("sys.mem.clockDivide", false));  // OCCARB
+        // OCCARB: optional NIC DMA injector. All keys are read even when disabled (zsim's strictConfig
+        // panics on unused settings). Doubles must be written with a decimal point in the cfg.
+        {
+            bool nicEnable = config.get<bool>("sys.mem.nic.enable", false);
+            ramulator::NicParams np;
+            np.buf_bytes     = 1024.0 * config.get<uint32_t>("sys.mem.nic.bufKB", 1024);
+            np.link_gbps     = config.get<double>("sys.mem.nic.linkGbps", 10.0);
+            np.cycle_hz      = 1e6 * frequency;   // Ramulator::tick() runs every CPU cycle
+            np.rho           = config.get<double>("sys.mem.nic.rho", 1.0);
+            np.period_cycles = config.get<uint32_t>("sys.mem.nic.periodCycles", 1000000);
+            np.pkt_bytes     = config.get<uint32_t>("sys.mem.nic.pktBytes", 1500);
+            np.line_bytes    = lineSize;
+            np.rx_enable     = config.get<bool>("sys.mem.nic.rx", true);
+            np.tx_enable     = config.get<bool>("sys.mem.nic.tx", true);
+            np.occ_bits      = config.get<uint32_t>("sys.mem.nic.occBits", 2);
+            uint64_t rxBase  = (uint64_t)config.get<uint32_t>("sys.mem.nic.rxBaseMB", 7168) << 20;
+            uint64_t txBase  = (uint64_t)config.get<uint32_t>("sys.mem.nic.txBaseMB", 7680) << 20;
+            uint64_t region  = (uint64_t)config.get<uint32_t>("sys.mem.nic.regionMB", 256) << 20;
+            uint32_t maxInfl = config.get<uint32_t>("sys.mem.nic.maxInflight", 64);
+            if (nicEnable) static_cast<Ramulator*>(mem)->setNic(np, rxBase, txBase, region, maxInfl);
+            else info("[NIC] disabled");
+        }
     } else if (type == "Detailed") {
         // FIXME(dsm): Don't use a separate config file... see DDRMemory
         g_string mcfg = config.get<const char*>("sys.mem.paramFile", "");

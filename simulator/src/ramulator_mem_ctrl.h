@@ -17,6 +17,8 @@ using namespace std;
 namespace ramulator {
   class Request;
   class RamulatorWrapper;
+  class NicModel;      // OCCARB
+  struct NicParams;    // OCCARB
 };
 
 class RamulatorAccEvent;
@@ -85,6 +87,10 @@ class Ramulator : public MemObject { //one Ramulator controller
     // OCCARB: enable the CPU/DRAM clock divider (sys.mem.clockDivide)
     void setClockDivide(bool enable);
 
+    // OCCARB: attach a NIC DMA injector (sys.mem.nic.*). Not called -> no NIC traffic.
+    void setNic(const ramulator::NicParams& p, uint64_t rxBase, uint64_t txBase,
+                uint64_t regionBytes, uint32_t maxInflight);
+
   private:
     std::function<void(ramulator::Request&)> read_cb_func;
 	  std::function<void(ramulator::Request&)> write_cb_func;
@@ -101,6 +107,21 @@ class Ramulator : public MemObject { //one Ramulator controller
     map<uint64_t, uint64_t> addr_counter;
 
     std::list<RamulatorAccEvent*> overflowQueue;
+
+    // ---- OCCARB: NIC DMA injector state ----
+    ramulator::NicModel* nic = nullptr;
+    uint64_t nicRxBase = 0, nicTxBase = 0, nicRegion = 1, nicRxOff = 0, nicTxOff = 0;
+    uint32_t nicMaxInflight = 64, nicRxInflightReqs = 0, nicTxInflightReqs = 0;
+    std::multimap<long, std::pair<uint32_t, uint64_t>> nicRxPending;  // addr -> (bytes, issue cycle)
+    std::multimap<long, uint64_t> nicTxPending;                       // addr -> issue cycle
+    uint64_t nicLevelCycles[8] = {0, 0, 0, 0, 0, 0, 0, 0};             // cycles spent at each occupancy level
+    uint64_t nicRxLatSum = 0, nicTxLatSum = 0, nicRxDone = 0, nicTxDone = 0;
+    uint64_t nicRxSendFails = 0, nicTxSendFails = 0;
+    std::function<void(ramulator::Request&)> nic_rx_cb_func;
+    std::function<void(ramulator::Request&)> nic_tx_cb_func;
+    void nicTick();
+    void NIC_rx_write_cb(ramulator::Request&);
+    void NIC_tx_read_cb(ramulator::Request&);
 };
 
 #endif  // RAMULATOR_MEM_CTRL_H_

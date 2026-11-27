@@ -37,8 +37,15 @@ Legend: **[NEW]** new file · **[MOD]** modified existing file · **[DEL]** dele
 | `simulator/templates/template_occarb.cfg` | MOD | 5a | `clockDivide = true;` |
 | `simulator/occarb/step5a/run_check.sh` | NEW | 5a | Step 5a checks |
 
+| `simulator/src/ramulator_mem_ctrl.h` | **MOD** | 5b | NIC injector members, `setNic()`, DMA callbacks |
+| `simulator/src/ramulator_mem_ctrl.cpp` | **MOD** | 5b | `#include "NicModel.h"`, NIC stats, `nicTick()` in `tick()`, `setNic`, callbacks |
+| `simulator/src/init.cpp` | **MOD** | 5b | `#include "NicModel.h"`; reads `sys.mem.nic.*`, attaches the NIC |
+| `simulator/templates/template_occarb.cfg` | MOD | 5b | `nic = { enable = false; ... }` block |
+| `simulator/occarb/lib.sh` | MOD | 5b | `zstat`, `nic_set` helpers |
+| `simulator/occarb/step5b/run_check.sh` | NEW | 5b | Step 5b checks (b0–b7) |
+
 Existing simulator source files modified so far: `ramulator/Controller.h` (Step 2), `ramulator/Request.h` (Step 3),
-`src/ramulator_mem_ctrl.h`, `src/ramulator_mem_ctrl.cpp`, `src/init.cpp` (Step 5a).
+`src/ramulator_mem_ctrl.h`, `src/ramulator_mem_ctrl.cpp`, `src/init.cpp` (Steps 5a, 5b).
 
 ---
 
@@ -279,4 +286,54 @@ No. Nothing includes `NicModel.h` yet (the check script verifies this), so no re
 ### Undo
 - Revert the 3 source edits.
 - Remove the template line (or set `clockDivide = false;`).
+- Run `bash occarb/rebuild.sh`.
+
+---
+
+## Step 5b: NIC DMA injector
+
+### What we did
+Connected `NicModel` (Step 4) to the simulator. The NIC now generates real cache-bypassing DMA
+traffic into Ramulator, alongside the cores' traffic, and reports loss, goodput, DMA latency and
+occupancy-level residency.
+
+### Changes
+- **[MOD] `src/ramulator_mem_ctrl.h`**
+  - Forward declarations `class NicModel; struct NicParams;`.
+  - Public `setNic(params, rxBase, txBase, regionBytes, maxInflight)`.
+  - Private state: `nic` pointer, ring offsets, in-flight maps (addr → bytes/issue cycle), level
+    residency array, latency sums, send-fail counters, 2 callbacks, `nicTick()`.
+- **[MOD] `src/ramulator_mem_ctrl.cpp`**
+  - `#include "NicModel.h"`.
+  - `initStats`: 20 `nic*` lambda stats, only if `nic` is set.
+  - `tick()`: `if (nic) nicTick();` after the overflow-queue retry, before `curCycle++`.
+  - New `setNic()` (logs `[NIC] enabled: ...`), `nicTick()`, `NIC_rx_write_cb()`, `NIC_tx_read_cb()`.
+  - Each cycle: `nic->tick()`; count the level; at most 1 RX write and 1 TX read. A request is
+    only marked issued in the NIC model after `wrapper->send()` accepts it.
+- **[MOD] `src/init.cpp`**
+  - `#include "NicModel.h"`.
+  - After `setClockDivide(...)`: reads all `sys.mem.nic.*` keys, then `setNic(...)` if
+    `enable`, else logs `[NIC] disabled`.
+  - `np.cycle_hz = 1e6 * frequency` (CPU MHz), because `tick()` runs every CPU cycle.
+    `np.line_bytes = lineSize`.
+- **[MOD] `templates/template_occarb.cfg`**: `nic` block, disabled by default.
+- **[MOD] `occarb/lib.sh`**: `zstat DIR STATS NAME`, `nic_set CFG KEY VALUE`.
+- **[NEW] `occarb/step5b/run_check.sh`**.
+
+### Modelling notes (for the paper's methodology)
+- DMA addresses are sequential and line-granular; they never touch the caches (cache-bypassing).
+- DMA requests use `coreid = 0` so Ramulator's per-core vectors stay in range. Total request
+  counts include DMA. The NIC-specific numbers come from the `nic*` stats.
+- RX space is freed only when the DRAM write *completes*, which is conservative.
+- At most 1 request per direction per CPU cycle, and `maxInflight` outstanding per direction
+  (default 64).
+
+### Simulator behaviour changed?
+- No NIC configured (all DAMOV configs, Step 1) or `enable = false`: no change, only a log line.
+- `enable = true` with ρ = 0: the NIC ticks but injects nothing, so timing must be bit-identical
+  (check b2).
+
+### Undo
+- Revert the edits in the 3 source files.
+- Remove the `nic` block from the template.
 - Run `bash occarb/rebuild.sh`.

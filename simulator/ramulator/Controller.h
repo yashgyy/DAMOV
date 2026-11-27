@@ -228,6 +228,12 @@ public:
         }
         with_drampower = false;
         fake_ideal_DRAM(configs);
+        // OCCARB: configurable read/write queue depth (default 32 when absent)
+        if (configs["queue_size"] != "") {
+            readq.max = writeq.max = stoul(configs["queue_size"]);
+        }
+        if (channel->id == 0)
+            printf("[RAMULATOR] Controller queue depth: readq=%u writeq=%u\n", readq.max, writeq.max);
         if (with_drampower) {
           act_energy
               .name("act_energy_" + to_string(channel->id))

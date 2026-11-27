@@ -33,8 +33,8 @@ Simulator code/config changes are tracked separately in
 
 | # | Step | Status |
 |---|---|---|
-| 1 | Baseline build + smoke run (unmodified DAMOV-SIM) | ⏳ in progress |
-| 2 | Paper system config (Table II) + baseline workload run | ☐ |
+| 1 | Baseline build + smoke run (unmodified DAMOV-SIM) | ✅ done |
+| 2 | Paper system config (Table II) + baseline workload run | ⏳ in progress |
 | 3 | DMA source tagging in Ramulator `Request` (no behaviour change) | ☐ |
 | 4 | NIC model as a standalone class + unit tests | ☐ |
 | 5 | Integrate NIC injector at the ZSim–Ramulator boundary | ☐ |
@@ -111,7 +111,7 @@ Simulator code/config changes are tracked separately in
 ## Log
 
 ### Step 1: Baseline build + smoke run
-- Status: in progress
+- Status: ✅ DONE (run 4)
 - Notes (repo state before starting):
   - `ramulator/Controller.h` queue depth is 32 (paper needs 64): handled in Step 2.
   - `templates/template_host_ooo.cfg` uses the HMC config: Step 2 switches it to DDR4.
@@ -160,4 +160,30 @@ Simulator code/config changes are tracked separately in
     therefore exactly reproducible, so S = T_overlap/T_alone needs no averaging.
   - Fix: check the `read_requests` / `write_requests` stats (`Memory.h:182-188`) instead;
     on failure the script prints the head of the stats file.
-- Run 4: _(pending)_
+- Run 4: **all PASS**.
+  - 1a PASS: zsim, libramulator.so, stream_copy all present.
+  - 1b PASS: `smoke.zsim.out` written.
+  - 1c PASS: core cycles = 26,637,522; Ramulator read_requests = 454,655, write_requests = 225,328.
+    The read:write ratio of about 2:1 is what STREAM Copy should give: it reads `a`, reads `c`
+    on each write-allocate miss, then writes `c` back.
+  - 1d PASS: deterministic (26,637,522 == 26,637,522).
+  - **Reference value: Step 1 smoke = 26,637,522 cycles.** Used as a regression check in later steps.
+
+### Step 2: Table II config
+- Status: in progress
+- Files: see SIMULATOR_CHANGES.md § Step 2.
+  - New: `ramulator-configs/DDR4-occarb.cfg`, `templates/template_occarb.cfg`,
+    `occarb/rebuild.sh`, `occarb/lib.sh`, `occarb/step2/run_check.sh`.
+  - Modified: `ramulator/Controller.h`, which adds the `queue_size` knob.
+- Workload for the baseline: STREAM Copy with 4 threads on 4 cores, 40M total instructions.
+  ResNet-18/MobileNetV2 come in Step 9.
+- Execution time T = max over cores of `cycles` in `<stats>.zsim.out`.
+- Checks:
+  - 2a: Step 1 regression (cycles still 26,637,522).
+  - 2b: the Table II run completes.
+  - 2c: config applied (4 cores, cache sizes, mem freq 1200 MHz, queue depth 64, DRAM traffic).
+  - 2d: the 4-core run is deterministic.
+  - 2e: `queue_size` 32 vs 64 changes the timing (the knob is live).
+- Pre-check: Ramulator with the edit compiles cleanly (verified in a scratch copy; the container's newer
+  GCC needs `-include cstdint` there, which is pre-existing and not needed on the user's GCC).
+- Run 1: _(pending)_

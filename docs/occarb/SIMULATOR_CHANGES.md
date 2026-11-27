@@ -16,7 +16,14 @@ Legend: **[NEW]** new file · **[MOD]** modified existing file · **[DEL]** dele
 | `simulator/occarb/step1/smoke.cfg` | NEW | 1 | Smoke-test config: 1 core + Ramulator DDR4 |
 | `simulator/occarb/step1/run_check.sh` | NEW | 1 | Automated Step 1 checks (1a–1d) |
 
-Existing simulator source files modified so far: **none**.
+| `simulator/ramulator-configs/DDR4-occarb.cfg` | NEW | 2 | DDR4-2400, 1 ch, 1 rank, 8Gb x8, `queue_size = 64` |
+| `simulator/templates/template_occarb.cfg` | NEW | 2 | Table II system template (4 OOO cores, L1/L2/L3, Ramulator) |
+| `simulator/ramulator/Controller.h` | **MOD** | 2 | `queue_size` config knob for readq/writeq depth + print |
+| `simulator/occarb/rebuild.sh` | NEW | 2 | Clean rebuild of Ramulator + ZSim |
+| `simulator/occarb/lib.sh` | NEW | 2 | Shared helpers for check scripts |
+| `simulator/occarb/step2/run_check.sh` | NEW | 2 | Step 2 checks (2a–2e) |
+
+Existing simulator source files modified so far: `ramulator/Controller.h` (Step 2).
 
 ---
 
@@ -80,3 +87,58 @@ No. Only new files were added.
 - `ramulator/Request.h:22`: requests carry only `coreid`. There is no source (DMA/core) tag yet (Step 3).
 - `src/ramulator_mem_ctrl.cpp:161`: `Ramulator::tick()` is where the NIC/DMA injector will hook in (Step 5).
 - `templates/template_host_ooo.cfg:68`: uses the HMC config, not DDR4 (Step 2).
+
+---
+
+## Step 2: Table II system config
+
+### What we did
+- Defined the paper's system (Table II) as a DAMOV-style template plus a dedicated DDR4 config.
+- Made the Ramulator controller queue depth configurable, because the paper needs 64 entries
+  and the stock value is a hard-coded 32.
+
+### Changes
+- **[NEW] `simulator/ramulator-configs/DDR4-occarb.cfg`**
+  - Copy of `DDR4-config.cfg` with `org = DDR4_8Gb_x8` (8 GB, 1 rank) and a new line
+    `queue_size = 64`.
+  - Unchanged: `standard = DDR4`, `channels = 1`, `ranks = 1`, `speed = DDR4_2400R`.
+  - The Ramulator config parser takes exactly 2 tokens per line, so inline comments are not allowed.
+- **[NEW] `simulator/templates/template_occarb.cfg`**
+  - Derived from `template_host_ooo.cfg`: OOO cores; L1d 32 kB/8-way/4 cyc; L1i 32 kB/4-way/3 cyc;
+    L2 256 kB/8-way/7 cyc private; L3 8 MB/16-way/16 banks/27 cyc shared; Ramulator memory;
+    `-ifeellucky`; `gmMBytes = 8192`; `startFastForwarded = True`.
+  - Placeholders: `NUMBER_CORES`, `STATS_PATH`, `COMMAND_STRING`, `MAX_INSTRS`, `RAMULATOR_CONFIG`.
+- **[MOD] `simulator/ramulator/Controller.h`**: in the `Controller(const Config&, DRAM<T>*)`
+  constructor, after `fake_ideal_DRAM(configs);`:
+  ```cpp
+  // OCCARB: configurable read/write queue depth (default 32 when absent)
+  if (configs["queue_size"] != "") {
+      readq.max = writeq.max = stoul(configs["queue_size"]);
+  }
+  if (channel->id == 0)
+      printf("[RAMULATOR] Controller queue depth: readq=%u writeq=%u\n", readq.max, writeq.max);
+  ```
+  - Write-drain watermarks (`0.8*writeq.max` / `0.2*writeq.max`, `Controller.h:628-633`) scale
+    automatically with the new depth.
+  - `otherq` (refresh) is left at 32.
+  - Applies to the generic `Controller<T>` (DDR3/DDR4/...). `HMC_Controller.h` is untouched.
+- **[NEW] `simulator/occarb/rebuild.sh`**: `make clean && make libramulator.so` in `ramulator/`,
+  then `scons`. A clean build is needed because Ramulator's Makefile has no header dependencies,
+  so edits to `.h` files are not picked up by a plain `make`.
+- **[NEW] `simulator/occarb/lib.sh`**: helpers `gen_cfg`, `run_dir`, `max_cycles`, `ncores`, `rstat`.
+- **[NEW] `simulator/occarb/step2/run_check.sh`**: checks 2a–2e.
+
+### Simulator behaviour changed?
+- Configs without `queue_size`: no change, apart from 1 extra log line. Check 2a verifies this
+  (Step 1 cycles must stay 26,637,522).
+- Configs with `queue_size = N`: the read/write queues hold N entries.
+
+### Undo
+- Delete the 5 new files.
+- Remove the 6 added lines from `Controller.h`.
+- Run `bash occarb/rebuild.sh`.
+
+### Build note
+- In this (Claude) container, the newer GCC fails on `StatType.h` without `#include <cstdint>`.
+  This is pre-existing and unrelated to OCCARB. The user's toolchain builds it as is.
+  If a newer compiler is used later, add `#include <cstdint>` to `ramulator/StatType.h`.

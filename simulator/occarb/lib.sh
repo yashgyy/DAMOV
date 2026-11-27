@@ -1,0 +1,27 @@
+# Shared helpers for OCCARB check scripts. Source from a script run in simulator/.
+SIM=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+WL=$(cd "$SIM/../workloads" && pwd)
+FAILED=0
+pass(){ echo "PASS $1"; }
+fail(){ echo "FAIL $1"; FAILED=1; }
+
+# gen_cfg OUT_CFG CORES STATS CMD MAX_INSTRS RAMCFG  -> writes a cfg from template_occarb.cfg
+gen_cfg(){
+  sed -e "s#NUMBER_CORES#$2#g" -e "s#STATS_PATH#$3#g" -e "s#COMMAND_STRING#$4#g" \
+      -e "s#MAX_INSTRS#$5#g" -e "s#RAMULATOR_CONFIG#$6#g" \
+      "$SIM/templates/template_occarb.cfg" > "$1"
+}
+
+# run_dir DIR STATS  -> runs DIR/run.cfg inside DIR, echoes zsim rc
+#   DIR must already contain run.cfg; ramulator-configs is symlinked unless DIR has its own.
+run_dir(){
+  ( cd "$1" && { [ -e ramulator-configs ] || ln -s "$SIM/ramulator-configs" .; } && \
+    "$SIM/build/opt/zsim" "$(pwd)/run.cfg" > zsim.log 2>&1 ); echo $?
+}
+
+# max_cycles DIR STATS -> max per-core cycles from <STATS>.zsim.out (= execution time)
+max_cycles(){ awk '/^[[:space:]]+cycles:/{if($2>m)m=$2}END{print m+0}' "$1/$2.zsim.out" 2>/dev/null; }
+# ncores DIR STATS -> number of simulated cores in zsim.out
+ncores(){ grep -cE '^[[:space:]]+core-[0-9]+:' "$1/$2.zsim.out" 2>/dev/null; }
+# rstat DIR STATS NAME -> Ramulator stat value
+rstat(){ grep -E "(^|[[:space:].])$3[[:space:]]" "$1/$2.ramulator.stats" 2>/dev/null | head -1 | awk '{print $2}'; }

@@ -27,6 +27,10 @@ Legend: **[NEW]** new file · **[MOD]** modified existing file · **[DEL]** dele
 | `simulator/occarb/step3/test_request.cc` | NEW | 3 | Unit test for the tag |
 | `simulator/occarb/step3/run_check.sh` | NEW | 3 | Step 3 checks (3a–3c) |
 
+| `simulator/ramulator/NicModel.h` | NEW | 4 | NIC RX/TX buffer + link + occupancy model (header-only) |
+| `simulator/occarb/step4/test_nic.cc` | NEW | 4 | NIC unit tests (4a–4j) |
+| `simulator/occarb/step4/run_check.sh` | NEW | 4 | Builds and runs the NIC unit tests |
+
 Existing simulator source files modified so far: `ramulator/Controller.h` (Step 2), `ramulator/Request.h` (Step 3).
 
 ---
@@ -195,3 +199,32 @@ No. Nothing reads `is_dma` yet. Absolute cycles may shift by <0.5% from the layo
 - Remove the 2 lines from `Request.h`.
 - Delete `occarb/step3/`.
 - Run `bash occarb/rebuild.sh`.
+
+---
+
+## Step 4: NIC model (standalone)
+
+### What we did
+Wrote the network-interface model from paper §II-A / §III as a self-contained class, and verified
+it with unit tests before connecting it to the simulator.
+
+### Changes
+- **[NEW] `simulator/ramulator/NicModel.h`**: `ramulator::NicParams` + `ramulator::NicModel`.
+  - It lives in `ramulator/` so that both the ZSim-side injector (Step 5) and the Ramulator
+    scheduler (Steps 6–7) can include it.
+  - Parameters (defaults): `buf_bytes` S (1 MiB), `link_gbps` (10), `cycle_hz` (1.2e9),
+    `rho` (1.0), `period_cycles` (1e6), `pkt_bytes` (1500), `line_bytes` (64),
+    `rx_enable`/`tx_enable` (true), `occ_bits` (2).
+  - API:
+    - `tick()`
+    - `want_rx_write()` / `issue_rx_write()` → bytes / `complete_rx_write(bytes)`
+    - `want_tx_read()` / `issue_tx_read()` / `complete_tx_read()`
+    - `occupancy()`, `level()`, `active()`, `rx_loss_rate()`
+    - public counters
+- **[NEW] `simulator/occarb/step4/test_nic.cc`**, **[NEW] `simulator/occarb/step4/run_check.sh`**.
+
+### Simulator behaviour changed?
+No. Nothing includes `NicModel.h` yet (the check script verifies this), so no rebuild is needed.
+
+### Undo
+`rm ramulator/NicModel.h; rm -rf occarb/step4`

@@ -35,8 +35,8 @@ Simulator code/config changes are tracked separately in
 |---|---|---|
 | 1 | Baseline build + smoke run (unmodified DAMOV-SIM) | ✅ done |
 | 2 | Paper system config (Table II) + baseline workload run | ✅ done |
-| 3 | DMA source tagging in Ramulator `Request` (no behaviour change) | ⏳ in progress |
-| 4 | NIC model as a standalone class + unit tests | ☐ |
+| 3 | DMA source tagging in Ramulator `Request` (no behaviour change) | ✅ done |
+| 4 | NIC model as a standalone class + unit tests | ⏳ in progress |
 | 5 | Integrate NIC injector at the ZSim–Ramulator boundary | ☐ |
 | 6 | Static baselines: Core-first, DMA-first | ☐ |
 | 7 | OCCARB scheduler (3 modes + hysteresis) | ☐ |
@@ -248,7 +248,7 @@ Simulator code/config changes are tracked separately in
     with `-no-pie` is a possible later refinement, but not needed for correctness of S.
 
 ### Step 3: DMA source tag
-- Status: in progress
+- Status: ✅ DONE (run 1)
 - Change: `ramulator/Request.h` gets `bool is_dma = false;` right after `int coreid = -1;`.
   The in-class initializer covers all 4 constructors, so the existing core-request paths in
   `src/ramulator_mem_ctrl.cpp` (`tick()`, `enqueue()`) need no edit.
@@ -258,4 +258,39 @@ Simulator code/config changes are tracked separately in
     survives a copy, and leaves other fields intact.
   - 3c: Step 1 regression, deterministic and within 0.5% of 26,587,526.
 - Pre-check (Claude container): the unit test passes 6/6, and Ramulator compiles with the new field.
+- Run 1: **all PASS**.
+  - 3a PASS: field present, both libraries rebuilt.
+  - 3b PASS: 6/6 unit tests.
+  - 3c PASS: Step 1 deterministic and **bit-identical (26,587,526)**. This time the code change did
+    not even shift memory layout.
+
+### Step 4: NIC model (standalone)
+- Status: in progress
+- New `ramulator/NicModel.h`: header-only, no dependencies. Not yet included by the simulator.
+- Model (one `tick()` per cycle):
+  - Link window: active for `rho·period_cycles` of every `period_cycles`.
+  - RX: while active, packets of `pkt_bytes` (1500) arrive at the link rate. A packet that doesn't
+    fit is dropped (loss). The buffer drains through 64 B DMA writes; space is freed on completion.
+    A partial tail (<64 B) is flushed only when the link is idle.
+  - TX: while active, 64 B DMA reads fill the buffer up to S; the link sends a packet each packet-time
+    if it is buffered, otherwise it counts an underrun.
+  - o = max(RX fill/S, TX emptiness). TX emptiness counts only while active. `level()` = floor(o·2^bits),
+    clamped; the paper uses 2 bits.
+- Modelling choices to keep in mind for the paper text:
+  - RX and TX are each S bytes and each run at the full link rate (full duplex).
+  - Loss is counted per packet (tail drop).
+  - The TX urgency spike at the start of each window is real behaviour: the buffer is empty when
+    the upload starts.
+- Unit tests `occarb/step4/test_nic.cc`:
+  - 4a: link-rate arithmetic (1/10/25 GbE).
+  - 4b: overflow without drain.
+  - 4c: zero loss with fast drain.
+  - 4d: loss when DRAM bandwidth < link rate.
+  - 4e: 2-bit and 3-bit quantisation boundaries.
+  - 4f: ρ = 0 / 0.5 / 1.
+  - 4g: TX underrun, goodput, and idle-link handling.
+  - 4h: o = max(...).
+  - 4i: byte conservation.
+  - 4j: no re-issue of in-flight bytes, and tail flush.
+- Pre-check (Claude container, g++ -Wall -Wextra): 24/24 PASS, no warnings.
 - Run 1: _(pending)_

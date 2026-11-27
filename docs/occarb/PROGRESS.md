@@ -332,3 +332,14 @@ Simulator code/config changes are tracked separately in
     variance is larger than one pair of runs showed.
   - Check 5a-3 (requested): rerun `occarb/step2/run_check.sh` on the current build. Its 2d runs the
     no-divider 4-core config twice.
+- Run 5a-3 (`occarb/step2/run_check.sh` on the current build):
+  - Note: the Step 2 script generates its config from `template_occarb.cfg`, which now has
+    `clockDivide = true`. So these are **divider-ON** runs, the same config as 5a-2 "on".
+  - 2a PASS (Step 1 = 26,587,526); 2b/2c PASS; 2e PASS.
+  - **2d: the same build and config gave 24,039,279 vs 21,785,770 cycles (9.4%)**, and 5a-2 "on"
+    gave 22,159,754. DRAM requests: 909,028/385,196 vs 909,103/384,609, equal to within 0.15%.
+  - **Conclusion: explanation 2.** Within-build run-to-run variance for the 4-thread STREAM run is
+    ~10%, not 0.12% (the Step 2 pair was a lucky match). The amount of work is identical, but the
+    time is not. This must be fixed before any slowdown can be measured: S for OCCARB is expected
+    to be in the 1.0–2.0 range, and the effects between policies may be a few %.
+  - Next: diagnose where the variance comes from (per-core instructions/cycles, thread sync in STREAM).

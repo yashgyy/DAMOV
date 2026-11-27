@@ -186,4 +186,9 @@ Simulator code/config changes are tracked separately in
   - 2e: `queue_size` 32 vs 64 changes the timing (the knob is live).
 - Pre-check: Ramulator with the edit compiles cleanly (verified in a scratch copy; the container's newer
   GCC needs `-include cstdint` there, which is pre-existing and not needed on the user's GCC).
+- Rebuild attempt 1: FAILED to compile (`Controller.h:191: expected unqualified-id before 'if'`).
+  - Cause: the edit was pasted at class scope, after the member declaration `bool with_drampower = false;`
+    (line ~189), instead of inside the constructor. The anchor text appears twice in the file.
+  - Fix: move the 6 lines into the constructor, right after the call `fake_ideal_DRAM(configs);` (~line 230).
+  - Lesson: from now on, every edit gives anchor context that is unique in the file, plus a grep to verify placement.
 - Run 1: _(pending)_

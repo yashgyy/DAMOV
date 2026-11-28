@@ -330,6 +330,14 @@ Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
   (−0.15 %) are therefore at noise level; only MLP (−1.1 %) is clearly significant.
   (2) agnostic ≈ v2 (LSTM +0.01 %, GRU +0.02 %) → for training, the phase hint adds nothing measurable so far.
 - Next: DNN v2 + agnostic, and repeat runs to measure noise.
+- Step 10b (2026-11-28): **identical-config repeat runs**: DNN FRFCFS 539.012 M vs FRFCFS_rep 533.122 M (−1.09 %);
+  GRU 519.743 vs 519.202 (−0.10 %). ⇒ run-to-run noise of the 4-thread FL runs is up to ~1.1 % (DNN), i.e. as large as
+  the best PhaSched gain. DNN: final 532.946, v2 534.052, agnostic 532.894 — all within the FRFCFS/FRFCFS_rep spread.
+  GRU: final 518.963, v2 519.424, agnostic 519.541 — within noise.
+- ⚠ CONSEQUENCE: the paper's round-time / latency / energy gains (0.5 % avg, 1.1 % max) are NOT statistically
+  supported by single runs. Effects clearly above noise: FCFS +5.7–10.8 % slower; BLISS +3.0 % on MLP (≈ 3× noise);
+  the 136× starvation bound (ubench, 1000 G). Paper numbers must be treated as provisional until repeated runs
+  (mean ± spread) or lower-noise runs (threads=1) are done.
 
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
@@ -344,8 +352,8 @@ Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
 | 7 | Ingress/egress time shrinks [A%]/[B%] | ❌ NIC-only / ✅ small mixed | DMA time identical at 10/100/1000 G (dma.csv); mixed EGRESS −4.9 % |
 | 8 | Turnarounds drop [T%] | ✅ mixed only | EGRESS −87 % (CPU proxy); NIC-only nothing to drop |
 | 9 | Ingress preset (eager, no cap) helps | ❌ | no gain NIC-only; mixed INGRESS +12.5 % worse; 100 G co-running reads 240 → 2,037 clk |
-| 10 | Train preset: lower read latency [Y%] | ❌ lazy rule / ✅ small with guard | final preset: TRAIN avg read latency −1.0 % geo (up to −2.8 % GRU); MLP p50 −20 % |
-| 11 | Round time −[X%] vs FR-FCFS | ✅ small | geomean −0.3 %, max −1.1 % (MLP), never slower; gain from Tmax guard in TRAIN |
+| 10 | Train preset: lower read latency [Y%] | ❓ within noise | GRU repeat alone moves avg latency 67.2 → 65.5 (−2.5 %) |
+| 11 | Round time −[X%] vs FR-FCFS | ❌ not significant | single-run gains (≤ 1.1 %) are within run-to-run noise (DNN repeat differs by 1.1 %) |
 | 12 | BLISS gains only [Z%] / thread fairness ≠ phase behaviour | ✅ | BLISS +1.0 % round (geo) vs FR-FCFS; does not fix INGRESS starvation |
 | 13 | DRAM energy change [E%] | ✅ small | −0.3 % geo, up to −1.2 % (MLP); MLP row activations −10.8 % |
 | 14 | Methodology: DAMOV-SIM + DMA injector + magic op, DDR4-2400, 10 GbE | ✅ | injector exact (32.2 M cyc); DDR4 timing fixed (Step 2b) |

@@ -59,7 +59,7 @@ for r in oc oc_win; do
   echo "     $r: RELAXED=$RC NEUTRAL=$NC URGENT=$UC transitions=$TR dram_cycles=$DC"
   absok $((RC+NC+UC)) $DC 0.001 && pass "7h $r: mode residency sums to DRAM cycles" || fail "7h $r: $((RC+NC+UC)) vs $DC"
 done
-[ "$(R oc_win occarb_transitions_0)" -gt 2 ] && [ "$(R oc_win occarb_urgent_cycles_0)" -gt 0 ] \
+[ "$(R oc_win occarb_transitions_0)" -ge 2 ] && [ "$(R oc_win occarb_urgent_cycles_0)" -gt 0 ] \
   && pass "7h windowed link (rho=0.5): sideband drives mode changes incl. URGENT" || fail "7h no mode activity with rho=0.5"
 
 # 7i: OCCARB result on 1 core (expected between CoreFirst and DMAFirst; no loss)

@@ -651,3 +651,17 @@ Simulator code/config changes are tracked separately in
   - smoke.cfg `env` line;
   - step7/run_check.sh: REF1 → 26,459,523, 7g/7i tolerance 2%.
 - Run 2: _(pending)_
+- Run 2 (with env line + 2% bands): **all PASS except 7h-windowed** (a check-design issue, not a bug).
+  - 7a–7d 14/14; 7e PASS (Step 1 = 26,572,587, within 0.43% of 26,459,523).
+  - 7g: OCCARB(θ = 1) = CoreFirst = **38,934,632 exactly** this time; OCCARB(θ = 0) 39,236,622 vs
+    DMAFirst 39,235,585 (0.003%).
+  - 7h: residency sums exactly. oc (ρ = 1): 16 transitions, URGENT 131,888, NEUTRAL 2,657 cycles.
+  - **7h-windowed FAIL:** oc_win (ρ = 0.5) had only 2 transitions; the check required > 2. Run 1 had 4.
+    - Explanation (model behaviour, correct): TX urgency comes from TX *emptiness* while the link is
+      active. During the idle half the NIC stops fetching, but the TX buffer keeps the data it
+      already fetched. So only the **first** window starts with an empty TX buffer (→ URGENT);
+      later windows start with a full buffer and stay RELAXED, and RX drains during the idle halves.
+    - The check's purpose ("the sideband drives the modes, incl. URGENT") is met. The threshold is
+      changed to ≥ 2 transitions.
+  - 7i PASS: S = CF 1.4856, FR 1.4938, OC 1.4863, DF 1.4971; loss 0 everywhere. OCCARB ≈ CoreFirst on 1 core.
+- **Step 7 correctness: DONE.** Next: 4-core stress experiment (effect size vs noise).

@@ -388,6 +388,9 @@ Mean round over ≥ 3 runs, normalised to FR-FCFS mean (min–max in M cycles):
 - Per the agreement, CNN-L is not used (no bigger gain); paper keeps the 32 MB CNN. Note: CNN-L is a data point where
   PhaSched is (insignificantly) slower than FR-FCFS, relevant to the "never slower" wording.
 
+### Decision 2026-11-28 (user): CNN in the paper = original 32 MB single run (PhaSched 0.9988); no re-runs.
+Paper edits = the 6 CNN edits (main_2p_cnn.tex, verified 2 pages).
+
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
 | # | Paper claim | Status | Evidence |

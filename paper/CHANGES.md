@@ -100,3 +100,20 @@ measurement were removed at the user's request).
   `phasched_egress_cap = 1000000`, or change the text.
 - Reviewer risk: phase-agnostic control (FR-FCFS + age bound without phases) not yet run.
 - Energy uses typical (not exact-datasheet) DDR4 IDD values (`phasched/scripts/energy.py`).
+
+## 2-page version (2026-11-28): `main_2p.tex` + `refs_short.bbl` → `main_2p.pdf` (2 pages, verified with pdflatex)
+Starting point: user's `main.tex` (3 pages; saved as `main_user_3p.tex`). Changes:
+1. References: `refs_short.bbl` — venue abbreviations (ISCA, HPCA, MICRO, ICCD, AISTATS, MLSys, IEEE Access, IEEE
+   Comput. Archit. Lett.), "et al." for ≥ 3 authors except 2–3-author papers, dropped vol/pages; ResNet ref removed.
+   `\input{refs_short.bbl}` (do NOT re-run bibtex into this file).
+2. Intro: the three bullets merged into one paragraph; "for common vision networks [ResNet]" dropped.
+3. Table I: header "Row-hit cap C" → "Cap C"; one line per phase; intents shortened (unchanged / long write bursts /
+   no write backlog / long read runs).
+4. Ingress, Train, Egress, Starvation-guard paragraphs tightened (same content; T_max value moved into the guard
+   sentence; lazy-drain sentence kept in one line).
+5. "C. Cost" subsection → run-in paragraph "Cost." (same content).
+6. Methodology: "Workloads:." typo fixed; workloads sentence shortened (same facts).
+7. Results paragraph tightened (all numbers kept).
+8. Fig. 2: height 3.3 → 3.2 cm, y ticks 0.98/1.00/1.02/1.04, shorter caption.
+9. Conclusion shortened (same two ongoing-work items).
+10. All `%` note comments removed (notes are kept in this file and in PROGRESS_LOG.md).

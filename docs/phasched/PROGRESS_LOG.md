@@ -344,6 +344,11 @@ Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
   user intends to keep the current text (assistant advised that single-run gains within noise should not be claimed).
 - 24 runs: {FRFCFS, FRFCFS_Cap, BLISS, PhaSched_v2} × {dnn, lstm, gru} × {r2, r3}; summary script flmean.sh.
 
+### Paper: 2-page version  (2026-11-28)
+- User's main.tex compiled to 3 pages (references alone ≈ 40 lines; template had no space reserved for them).
+- `paper/main_2p.tex` + `refs_short.bbl` → 2 pages, verified with pdflatex (TeX Live installed in the session).
+  Content kept; see `paper/CHANGES.md` "2-page version" for the 10 edits.
+
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
 | # | Paper claim | Status | Evidence |

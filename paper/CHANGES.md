@@ -118,3 +118,12 @@ Starting point: user's `main.tex` (3 pages; saved as `main_user_3p.tex`). Change
 9. Conclusion shortened (same two ongoing-work items).
 10. All `%` note comments removed (notes are kept in this file and in PROGRESS_LOG.md).
 11. Results: re-added "Scheduling matters on these clients:" (user request); still 2 pages.
+
+## CNN added (2026-11-28): `main_2p_cnn.tex` → 2 pages (verified)
+CNN (single run, 10 GbE, K=2, batch 16, 32.3 MB) normalised to FR-FCFS: FCFS 1.0752, Cap 1.0087, BLISS 1.0071,
+PhaSched 0.9988; TRAIN read latency PhaSched/FR-FCFS 1.0016; energy 0.9990; ACT 0.9974.
+4-client geomeans (MLP/CNN/LSTM/GRU, single runs): PhaSched 0.9961 (−0.4 %), Cap 1.0095 (+0.9 %), BLISS 1.0115
+(+1.1 %), FCFS 1.0759 (+7.6 %); read latency 0.9877 (−1.2 %); energy 0.9958 (−0.4 %).
+Edits: abstract (three→four, 0.5→0.4 %, 1.7→1.2 %), methodology workloads list, Table II Workloads (+CNN row) and Round
+(K=2/2/1/1, 32/16/8/8), results (0.5→0.4, 1.7→1.2, Cap 1.0→0.9, BLISS 1.3→1.1, energy 0.5→0.4), Fig. 2 (CNN group,
+new geomeans, separator at 4.5).

@@ -373,7 +373,10 @@ Mean round over ≥ 3 runs, normalised to FR-FCFS mean (min–max in M cycles):
   default batch 16; native TRAIN 2 steps = 259 ms (≈ MLP steps=2) → K = 2.
 - Gradient check (fixed harness: gradient now taken at the unperturbed point, eps 1e-3): CNN worst rel. error 3.6 %,
   DNN 0.2 %; LSTM/GRU large-magnitude gradients match within 0.5 % (tiny ones limited by float precision).
-- Result: _pending (5 schedulers @ 10 G)_
+- Results (single run, 10 G, round M cyc): FCFS 1494.80, FRFCFS 1390.27, Cap 1402.33, BLISS 1400.15, PhaSched_final 1388.64
+  → normalised 1.0752 / 1.0000 / 1.0087 / 1.0071 / 0.9988. TRAIN read latency 62.4 vs 62.5 (PhaSched +0.2 %);
+  energy 0.9990. Note: CNN gain (−0.12 %) is within run-to-run noise.
+- Paper: `paper/main_2p_cnn.tex` (2 pages) with 4-client numbers; see paper/CHANGES.md.
 
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 

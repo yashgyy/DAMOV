@@ -378,6 +378,11 @@ Mean round over ≥ 3 runs, normalised to FR-FCFS mean (min–max in M cycles):
   energy 0.9990. Note: CNN gain (−0.12 %) is within run-to-run noise.
 - Paper: `paper/main_2p_cnn.tex` (2 pages) with 4-client numbers; see paper/CHANGES.md.
 
+### Step 12b — CNN-L  (2026-11-28, running)
+- Same system/schedulers/K/batch as CNN; only FC hidden 1024 → 2048 (≈ 17 M params, ≈ 65 MB). Motivation fixed before
+  running: more write-heavy training (larger FC gradients). Agreed rule: report CNN-L as it comes out; no further
+  variants. Configs fl_cnnL_<sched>_10g (command adds `fc=2048`).
+
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
 | # | Paper claim | Status | Evidence |

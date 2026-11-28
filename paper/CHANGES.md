@@ -127,3 +127,5 @@ PhaSched 0.9988; TRAIN read latency PhaSched/FR-FCFS 1.0016; energy 0.9990; ACT 
 Edits: abstract (three→four, 0.5→0.4 %, 1.7→1.2 %), methodology workloads list, Table II Workloads (+CNN row) and Round
 (K=2/2/1/1, 32/16/8/8), results (0.5→0.4, 1.7→1.2, Cap 1.0→0.9, BLISS 1.3→1.1, energy 0.5→0.4), Fig. 2 (CNN group,
 new geomeans, separator at 4.5).
+
+## v3 (2026-11-28): results paragraph — removed "and is never slower than FR-FCFS" and the ingress/egress link-bound clause (user request). Abstract unchanged. 2 pages.

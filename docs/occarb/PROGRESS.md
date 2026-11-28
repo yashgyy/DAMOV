@@ -39,7 +39,7 @@ Simulator code/config changes are tracked separately in
 | 4 | NIC model as a standalone class + unit tests | ✅ done |
 | 5a | Memory clock fidelity: optional CPU/DRAM clock divider | ✅ done |
 | 5b | Integrate NIC injector at the ZSim–Ramulator boundary | ✅ done |
-| 6 | Static baselines: Core-first, DMA-first | ⏳ in progress |
+| 6 | Static baselines: Core-first, DMA-first | ✅ done |
 | 7 | OCCARB scheduler (3 modes + hysteresis) | ☐ |
 | 8 | BLISS baseline | ☐ |
 | 9 | Workloads: ResNet-18 / MobileNetV2 training ROI | ☐ |
@@ -458,7 +458,7 @@ Simulator code/config changes are tracked separately in
 
 
 ### Step 6: Source arbitration policies (FR-FCFS / Core-first / DMA-first)
-- Status: in progress
+- Status: ✅ DONE (run 1)
 - Design finding: Ramulator serves **one** queue per cycle (`readq`, or `writeq` in write-drain
   mode, or `otherq` for refresh). If DMA writes were mixed into `writeq`, they would trigger write
   drain (writeq ≥ 80%) and block core reads regardless of any priority inside `get_head`.
@@ -494,4 +494,45 @@ Simulator code/config changes are tracked separately in
   - 6j: RX+TX 25 GbE ordering S(CoreFirst) ≤ S(FRFCFS) ≤ S(DMAFirst), and DMA latency in the reverse order.
 - Note: Step 5b's FR-FCFS numbers (S = 1.4415 at 25 GbE) were measured with DMA mixed into
   readq/writeq. They are superseded by 6j's FRFCFS value.
-- Run 1: _(pending)_
+- User-side build issues before run 1 (logged as lessons):
+  1. The Edit-3 line was pasted *over* the `Queue& get_queue(Request::Type type)` function header
+     instead of inside `enqueue()`.
+  2. Fixed with two pattern-based `sed` commands (delete the stray line; rewrite the original line
+     inside `enqueue`) plus re-inserting the `get_queue` header after `/* Member Functions */`.
+     Both fixes were first verified on a copy of the file broken the same way.
+- Run 1: **all PASS** (the output was cut off in the last line, but it shows PASS).
+  - 6a–6f: 14/14 unit tests, the same numbers as the pre-check.
+  - 6g: Step 1 = **26,736,521**, +0.45% vs 26,616,590. This is a layout shift from the rebuild,
+    within tolerance but near the 0.5% limit. **New Step 1 reference: 26,736,521.**
+  - 6h: each policy appears in the log.
+  - 6i: NIC off gives identical cycles for all 3 policies. **T0 = 26,306,418** (5b had 26,241,423;
+    +0.25%, rebuild layout).
+  - 6j (1 core, RX+TX 25 GbE, S = 1 MB):
+
+    | policy | S | RX DMA lat | TX DMA lat | loss | underruns | time at level 3 |
+    |---|---|---|---|---|---|---|
+    | FRFCFS | 1.4876 | 374 | 481 | 0 | 0 | 0.23% |
+    | CoreFirst | **1.4838** | 589 | 827 | 0 | 0 | 0.26% |
+    | DMAFirst | 1.4921 | 365 | 469 | 0 | 0 | 0.22% |
+
+    - The ordering is correct: S is CoreFirst < FRFCFS < DMAFirst, and DMA latency is
+      DMAFirst < FRFCFS < CoreFirst.
+    - **But the policies differ by only 0.6% in S, while the DMA cost itself is 48%.**
+- Analysis of the small policy spread (important for the evaluation design):
+  1. DMA must eventually be served at the link rate under every policy, so its total bandwidth is the
+     same. A priority policy can only change *when* DMA is served, and which core requests it delays.
+  2. With **1 core**, the core rarely has a ready request every cycle (limited memory-level
+     parallelism). So even CoreFirst finds plenty of idle slots for DMA: the DMA latency is only
+     589 vs 374 cycles, and the buffers never fill (level 3 ≈ 0.25%, no loss).
+  3. The 48% slowdown therefore comes mostly from interference that priority doesn't remove: DMA
+     row activations closing the core's open rows, read/write bus turnarounds, and shared bandwidth.
+  4. The paper's claims (Core-first loses packets, OCCARB ≈ Core-first slowdown with no loss) need
+     a **memory-saturating** core workload, so that CoreFirst actually starves DMA and buffer
+     occupancy rises. With 1 core that never happens.
+  - Consequence for Step 7: validate OCCARB's mechanics on 1 core (deterministic), and add a
+    **4-core saturating stress test** (STREAM ×4 + 25 GbE, 3 repeats). There, CoreFirst should
+    show loss > 0 and OCCARB should show URGENT residency > 0 with ~0 loss.
+  - Possible refinement, to evaluate in Step 7: in RELAXED mode, the paper says DMA may only go to
+    "banks with no ready core request". Our CoreFirst uses "the core head can't issue this cycle".
+    A stricter variant (no DMA to a bank with *any* queued core request) would also reduce the
+    row-conflict interference from point 3.

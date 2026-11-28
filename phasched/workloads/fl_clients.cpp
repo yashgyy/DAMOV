@@ -12,9 +12,10 @@
 //   dnn    : MLP in-h1-h2-classes, ReLU, softmax-CE, minibatch SGD
 //   lstm   : 2-layer LSTM (input in, hidden H, seq T) + linear classifier, full BPTT
 //   gru    : 2-layer GRU, same shapes as lstm
+//   cnn    : conv3x3(3->c1)-pool-conv3x3(c1->c2)-pool-FC(fc)-FC(classes) on img x img x 3 images
 //
 // Usage: fl_client model=dnn rounds=1 steps=4 batch=32 threads=4 [size keys] [check=1]
-//   size keys: feat nnz classes in h1 h2 hidden seq data_mb lr
+//   size keys: feat nnz classes in h1 h2 hidden seq img c1 c2 fc data_mb lr
 //   check=1  : native sanity check - repeats one minibatch and prints the loss (must drop)
 //
 // Build: g++ -O3 -std=c++11 -fopenmp -I../include -I../../simulator/misc/hooks fl_clients.cpp -o fl_client
@@ -35,6 +36,7 @@ struct Args {
     long feat = 1000000, nnz = 64, classes = 10;
     long in = 1024, h1 = 2048, h2 = 2048;     // dnn (in is also the rnn input width if set)
     long hidden = 512, seq = 16;              // rnn
+    long img = 32, c1 = 64, c2 = 128, fc = 1024;  // cnn
     long data_mb = 256;
     float lr = 0.01f;
     bool in_set = false;
@@ -61,6 +63,10 @@ static Args parse(int argc, char** argv) {
         else if (k == "h2")      a.h2 = atol(v.c_str());
         else if (k == "hidden")  a.hidden = atol(v.c_str());
         else if (k == "seq")     a.seq = atol(v.c_str());
+        else if (k == "img")     a.img = atol(v.c_str());
+        else if (k == "c1")      a.c1 = atol(v.c_str());
+        else if (k == "c2")      a.c2 = atol(v.c_str());
+        else if (k == "fc")      a.fc = atol(v.c_str());
         else if (k == "data_mb") a.data_mb = atol(v.c_str());
         else if (k == "lr")      a.lr = (float)atof(v.c_str());
         else { fprintf(stderr, "unknown key %s\n", k.c_str()); exit(1); }
@@ -429,6 +435,105 @@ struct RNN : Model {
     }
 };
 
+// ------------------------------------------------------------------ CNN
+// conv3x3(3->c1)+ReLU+maxpool2 -> conv3x3(c1->c2)+ReLU+maxpool2 -> FC(fc)+ReLU -> FC(classes)
+// NHWC layout; convolution = im2col + the dense kernels above (rows = B*H*W).
+struct CNN : Model {
+    int B, S, C1, C2, F, C; long N; float lr;
+    float *X; int *lab;
+    float *Wc1, *bc1, *Wc2, *bc2, *Wf1, *bf1, *Wf2, *bf2, *Gc1, *gbc1, *Gc2, *gbc2, *Gf1, *gbf1, *Gf2, *gbf2;
+    float *col1, *A1, *P1, *col2, *A2, *P2, *H, *O, *dO, *dH, *dP2, *dA2, *dcol2, *dP1, *dA1;
+    int *arg1, *arg2;
+    static void im2col(const float* in, int B, int S, int Cin, float* col) {
+        #pragma omp parallel for schedule(static)
+        for (long r = 0; r < (long)B * S * S; r++) {
+            int b = (int)(r / (S * S)), y = (int)(r / S % S), x = (int)(r % S);
+            float* c = col + r * 9 * Cin;
+            for (int ky = 0; ky < 3; ky++) for (int kx = 0; kx < 3; kx++) {
+                int yy = y + ky - 1, xx = x + kx - 1;
+                float* d = c + (ky * 3 + kx) * Cin;
+                if (yy < 0 || yy >= S || xx < 0 || xx >= S) memset(d, 0, sizeof(float) * Cin);
+                else memcpy(d, in + (((size_t)b * S + yy) * S + xx) * Cin, sizeof(float) * Cin);
+            }
+        }
+    }
+    static void col2im(const float* col, int B, int S, int Cin, float* in) {   // in = sum of col contributions
+        memset(in, 0, sizeof(float) * (size_t)B * S * S * Cin);
+        for (long r = 0; r < (long)B * S * S; r++) {
+            int b = (int)(r / (S * S)), y = (int)(r / S % S), x = (int)(r % S);
+            const float* c = col + r * 9 * Cin;
+            for (int ky = 0; ky < 3; ky++) for (int kx = 0; kx < 3; kx++) {
+                int yy = y + ky - 1, xx = x + kx - 1;
+                if (yy < 0 || yy >= S || xx < 0 || xx >= S) continue;
+                float* d = in + (((size_t)b * S + yy) * S + xx) * Cin; const float* s = c + (ky * 3 + kx) * Cin;
+                for (int k = 0; k < Cin; k++) d[k] += s[k];
+            }
+        }
+    }
+    static void relu(float* a, long n) { for (long i = 0; i < n; i++) a[i] = a[i] > 0 ? a[i] : 0; }
+    static void pool(const float* in, int B, int S, int Cc, float* out, int* arg) {   // 2x2 max, NHWC
+        int T = S / 2;
+        #pragma omp parallel for schedule(static)
+        for (long o = 0; o < (long)B * T * T; o++) {
+            int b = (int)(o / (T * T)), y = (int)(o / T % T), x = (int)(o % T);
+            for (int c = 0; c < Cc; c++) {
+                float best = -1e30f; int bi = 0;
+                for (int dy = 0; dy < 2; dy++) for (int dx = 0; dx < 2; dx++) {
+                    int idx = (int)((((size_t)b * S + 2 * y + dy) * S + 2 * x + dx) * Cc + c);
+                    if (in[idx] > best) { best = in[idx]; bi = idx; }
+                }
+                out[o * Cc + c] = best; arg[o * Cc + c] = bi;
+            }
+        }
+    }
+    void init(const Args& a) {
+        B = a.batch ? a.batch : 16; S = (int)a.img; C1 = (int)a.c1; C2 = (int)a.c2; F = (int)a.fc; C = (int)a.classes; lr = a.lr;
+        long in = (long)S * S * 3; N = (a.data_mb << 20) / (in * 4); if (N < B) N = B;
+        X = falloc((size_t)N * in); fill_rand(X, (size_t)N * in, 1.f, 21);
+        lab = (int*)malloc(sizeof(int) * N); uint64_t s = 55; for (long n = 0; n < N; n++) lab[n] = (int)(xs64(s) % C);
+        data_bytes = (size_t)N * in * 4;
+        long flat = (long)(S / 4) * (S / 4) * C2;
+        size_t o[9]; o[0] = 0; o[1] = o[0] + (size_t)C1 * 27; o[2] = o[1] + C1; o[3] = o[2] + (size_t)C2 * 9 * C1; o[4] = o[3] + C2;
+        o[5] = o[4] + (size_t)F * flat; o[6] = o[5] + F; o[7] = o[6] + (size_t)C * F; o[8] = o[7] + C;
+        P = o[8]; W = falloc(P); G = falloc(P); fill_rand(W, P, 0.05f, 23); zero(G, P);
+        Wc1 = W + o[0]; bc1 = W + o[1]; Wc2 = W + o[2]; bc2 = W + o[3]; Wf1 = W + o[4]; bf1 = W + o[5]; Wf2 = W + o[6]; bf2 = W + o[7];
+        Gc1 = G + o[0]; gbc1 = G + o[1]; Gc2 = G + o[2]; gbc2 = G + o[3]; Gf1 = G + o[4]; gbf1 = G + o[5]; Gf2 = G + o[6]; gbf2 = G + o[7];
+        long r1 = (long)B * S * S, r2 = (long)B * (S / 2) * (S / 2);
+        col1 = falloc((size_t)r1 * 27); A1 = falloc((size_t)r1 * C1); P1 = falloc((size_t)r2 * C1); arg1 = (int*)malloc(sizeof(int) * r2 * C1);
+        col2 = falloc((size_t)r2 * 9 * C1); A2 = falloc((size_t)r2 * C2); P2 = falloc((size_t)B * flat); arg2 = (int*)malloc(sizeof(int) * B * flat);
+        H = falloc((size_t)B * F); O = falloc((size_t)B * C); dO = falloc((size_t)B * C); dH = falloc((size_t)B * F);
+        dP2 = falloc((size_t)B * flat); dA2 = falloc((size_t)r2 * C2); dcol2 = falloc((size_t)r2 * 9 * C1); dP1 = falloc((size_t)r2 * C1);
+        dA1 = falloc((size_t)r1 * C1);
+    }
+    double step(long k) {
+        long s0 = (k * B) % (N - B + 1);
+        const float* x = X + (size_t)s0 * S * S * 3;
+        int S2 = S / 2; long r1 = (long)B * S * S, r2 = (long)B * S2 * S2, flat = (long)(S / 4) * (S / 4) * C2;
+        zero(G, P);
+        im2col(x, B, S, 3, col1);  lin_fwd(col1, (int)r1, 27, Wc1, bc1, C1, A1, false); relu(A1, r1 * C1); pool(A1, B, S, C1, P1, arg1);
+        im2col(P1, B, S2, C1, col2); lin_fwd(col2, (int)r2, 9 * C1, Wc2, bc2, C2, A2, false); relu(A2, r2 * C2); pool(A2, B, S2, C2, P2, arg2);
+        lin_fwd(P2, B, (int)flat, Wf1, bf1, F, H, false); relu(H, (long)B * F);
+        lin_fwd(H, B, F, Wf2, bf2, C, O, false);
+        double loss = softmax_ce(O, lab + s0, B, C, dO);
+        lin_bwd_w(dO, B, C, H, F, Gf2, gbf2);
+        lin_bwd_data(dO, B, C, Wf2, F, dH, false); for (long j = 0; j < (long)B * F; j++) if (H[j] <= 0) dH[j] = 0;
+        lin_bwd_w(dH, B, F, P2, (int)flat, Gf1, gbf1);
+        lin_bwd_data(dH, B, F, Wf1, (int)flat, dP2, false);
+        memset(dA2, 0, sizeof(float) * r2 * C2);
+        for (long j = 0; j < (long)B * flat; j++) dA2[arg2[j]] += dP2[j];
+        for (long j = 0; j < r2 * C2; j++) if (A2[j] <= 0) dA2[j] = 0;
+        lin_bwd_w(dA2, (int)r2, C2, col2, 9 * C1, Gc2, gbc2);
+        lin_bwd_data(dA2, (int)r2, C2, Wc2, 9 * C1, dcol2, false);
+        col2im(dcol2, B, S2, C1, dP1);
+        memset(dA1, 0, sizeof(float) * r1 * C1);
+        for (long j = 0; j < r2 * C1; j++) dA1[arg1[j]] += dP1[j];
+        for (long j = 0; j < r1 * C1; j++) if (A1[j] <= 0) dA1[j] = 0;
+        lin_bwd_w(dA1, (int)r1, C1, col1, 27, Gc1, gbc1);
+        sgd(W, G, P, lr);
+        return loss;
+    }
+};
+
 // ------------------------------------------------------------------ main
 int main(int argc, char** argv) {
     Args a = parse(argc, argv);
@@ -439,6 +544,7 @@ int main(int argc, char** argv) {
     else if (a.model == "dnn")    m = new DNN();
     else if (a.model == "lstm")   m = new RNN(true);
     else if (a.model == "gru")    m = new RNN(false);
+    else if (a.model == "cnn")    m = new CNN();
     else { fprintf(stderr, "unknown model %s\n", a.model.c_str()); return 1; }
     m->init(a);
     printf("[FL] model=%s params=%zu model_MB=%.1f grad_MB=%.1f data_MB=%.1f rounds=%d steps=%d threads=%d\n",
@@ -451,7 +557,8 @@ int main(int argc, char** argv) {
         uint64_t s = 4242;
         for (int q = 0; q < 12; q++) {
             size_t p = (size_t)(xs64(s) % m->P);
-            float ga = m->G[p], w = m->W[p], e = 1e-2f;
+            m->step(0);                                 // gradient at the unperturbed point
+            float ga = m->G[p], w = m->W[p], e = 1e-3f;
             m->W[p] = w + e; double l1 = m->step(0);
             m->W[p] = w - e; double l2 = m->step(0);
             m->W[p] = w;

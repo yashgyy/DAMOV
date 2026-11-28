@@ -363,6 +363,18 @@ Mean round over ≥ 3 runs, normalised to FR-FCFS mean (min–max in M cycles):
 - Assistant recommendation: rewrite abstract/results to "matches the best baseline; Cap/BLISS are 1.0–1.3 % slower"
   and drop single-run-only claims (−0.5 %/−1.1 % round, −1.7 % latency, MLP p50 −20 %, energy −0.5 %, lazy +0.3 %).
 
+### Decision 2026-11-28 (user)
+- Keep the paper's current single-run claims (assistant had recommended averaged numbers; recorded above).
+- Add a CNN client to the paper with the same specs.
+
+### Step 12 — CNN client  (2026-11-28, in progress)
+- `fl_clients.cpp` model=cnn: conv3x3(3→64)+ReLU+pool2 → conv3x3(64→128)+ReLU+pool2 → FC(8192→1024)+ReLU → FC(1024→10),
+  32×32×3 synthetic images, NHWC, im2col + the existing dense kernels; 8.48 M params = 32.3 MB (+32.3 MB grads);
+  default batch 16; native TRAIN 2 steps = 259 ms (≈ MLP steps=2) → K = 2.
+- Gradient check (fixed harness: gradient now taken at the unperturbed point, eps 1e-3): CNN worst rel. error 3.6 %,
+  DNN 0.2 %; LSTM/GRU large-magnitude gradients match within 0.5 % (tiny ones limited by float precision).
+- Result: _pending (5 schedulers @ 10 G)_
+
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
 | # | Paper claim | Status | Evidence |

@@ -349,6 +349,20 @@ Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
 - `paper/main_2p.tex` + `refs_short.bbl` → 2 pages, verified with pdflatex (TeX Live installed in the session).
   Content kept; see `paper/CHANGES.md` "2-page version" for the 10 edits.
 
+### Step 11 — Repeat-run results  (2026-11-28)
+Mean round over ≥ 3 runs, normalised to FR-FCFS mean (min–max in M cycles):
+| | MLP | LSTM | GRU | geomean |
+|---|---|---|---|---|
+| FR-FCFS | 1.0000 (533.1–539.0, n=4) | 1.0000 (758.2–760.1) | 1.0000 (519.2–519.7, n=4) | 1.0000 |
+| FR-FCFS-Cap | 1.0073 (538.2–543.3) | 1.0132 (768.7–769.3) | 1.0108 (524.6–525.3) | 1.0104 |
+| BLISS | 1.0282 (549.5–555.2) | 1.0061 (763.3–764.2) | 1.0044 (521.1–522.2) | 1.0128 |
+| PhaSched_v2 | 0.9997 (534.1–539.0) | 0.9992 (756.7–759.8) | 1.0000 (519.3–519.4) | 0.9996 |
+- TRAIN mean read latency PhaSched/FR-FCFS: 129.2/129.4, 67.6/67.5, 66.1/66.1 → no change.
+- ⇒ PhaSched **matches** FR-FCFS (−0.04 % geo, ranges overlap): the single-run gains (0.5 % / 1.1 %) were noise.
+  Robust (non-overlapping ranges): FR-FCFS-Cap +1.0 %, BLISS +1.3 % (MLP +2.8 %) slower than FR-FCFS and PhaSched.
+- Assistant recommendation: rewrite abstract/results to "matches the best baseline; Cap/BLISS are 1.0–1.3 % slower"
+  and drop single-run-only claims (−0.5 %/−1.1 % round, −1.7 % latency, MLP p50 −20 %, energy −0.5 %, lazy +0.3 %).
+
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
 | # | Paper claim | Status | Evidence |
@@ -363,7 +377,7 @@ Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
 | 8 | Turnarounds drop [T%] | ✅ mixed only | EGRESS −87 % (CPU proxy); NIC-only nothing to drop |
 | 9 | Ingress preset (eager, no cap) helps | ❌ | no gain NIC-only; mixed INGRESS +12.5 % worse; 100 G co-running reads 240 → 2,037 clk |
 | 10 | Train preset: lower read latency [Y%] | ❓ within noise | GRU repeat alone moves avg latency 67.2 → 65.5 (−2.5 %) |
-| 11 | Round time −[X%] vs FR-FCFS | ❌ not significant | single-run gains (≤ 1.1 %) are within run-to-run noise (DNN repeat differs by 1.1 %) |
+| 11 | Round time −[X%] vs FR-FCFS | ❌ | mean of ≥3 runs: −0.04 % geo (matches FR-FCFS); beats Cap by 1.0 %, BLISS by 1.3 % |
 | 12 | BLISS gains only [Z%] / thread fairness ≠ phase behaviour | ✅ | BLISS +1.0 % round (geo) vs FR-FCFS; does not fix INGRESS starvation |
 | 13 | DRAM energy change [E%] | ✅ small | −0.3 % geo, up to −1.2 % (MLP); MLP row activations −10.8 % |
 | 14 | Methodology: DAMOV-SIM + DMA injector + magic op, DDR4-2400, 10 GbE | ✅ | injector exact (32.2 M cyc); DDR4 timing fixed (Step 2b) |

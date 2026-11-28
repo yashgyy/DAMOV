@@ -590,4 +590,38 @@ Simulator code/config changes are tracked separately in
 - Stress experiment (`occarb/step7/stress.sh [REPEATS] [BUF_KB]`, default 3 × 256 KB). Reports
   findings, not pass/fail: 4 cores STREAM, 25 GbE RX+TX; FR-FCFS / CoreFirst / DMAFirst / OCCARB;
   S mean [min, max], loss, underruns, URGENT %.
-- Run 1: _(pending)_
+- User-side apply: hunk 1 of the patch failed at first. The user's Step 6 paste had 2 extra blank
+  lines after `long dma_cmds ...` (seen with `cat -A`). Deleting lines 187–188 let the patch apply.
+  This was verified first on a reproduction of the user's file.
+- Run 1 (`run_check.sh`):
+  - 7a–7d: **14/14 unit tests PASS** on the user's build (identical numbers to the pre-check).
+  - 7e: Step 4/6 unit tests PASS. **Step 1 FAIL**: its two internal runs differed
+    (26,638,421 vs 26,573,526, 0.24%). This is the first non-repeatable Step 1 since the start.
+  - 7f PASS.
+  - **7g FAIL**: OCCARB(θ = 1) 38,634,490 vs CoreFirst 39,136,565 (−1.3%); OCCARB(θ = 0) 39,244,762
+    vs DMAFirst 39,265,750 (−0.05%). The unit tests prove these are decision-identical.
+  - 7h PASS: oc RELAXED 19,285,249 / URGENT 132,251 / 2 transitions; oc_win 4 transitions incl. URGENT;
+    residency sums exactly to dram_cycles.
+  - **7i FAIL**: S = CF 1.4937, FR 1.4944, OC 1.4823, DF 1.4987. OC falls below CF, by an amount
+    comparable to the oc_R anomaly. Loss 0 everywhere.
+- Probe 1 (repeat runs on the same build):
+  - Step 1 (no NIC): 26,638,421 ×3 (but earlier 26,573,526 once).
+  - CoreFirst + NIC: 39,136,565 ×3 (repeatable).
+  - **OCCARB(θ = 1): 38,634,490 then 39,100,017 (1.2% apart, same config)**.
+  - The config diff is only `src_policy` + the θ lines.
+  - Conclusion: **intermittent run-to-run non-determinism in the simulation itself**, not an OCCARB
+    scheduling difference. It appears even without the NIC (Step 1). The earlier 1-cycle rerun
+    difference in 5b was an early sign.
+- Hypothesis: STREAM's first `#pragma omp parallel` (`stream.c:254-259`) runs before
+  `omp_set_num_threads(n)`, so libgomp starts **as many threads as the host has CPUs**, even for
+  `stream_copy 1`. Idle pool threads block in futex waits. ZSim handles blocking syscalls with a
+  watchdog on host time, so when idle threads wake and are scheduled onto the simulated core can
+  depend on host timing. This could also contribute to the ~10% 4-core spread (Step 5a-3), where
+  barrier waits are real.
+- Probe 2 (`occarb/step7/probe_env.sh`, no code change): adds
+  `env = "OMP_NUM_THREADS=<cores> OMP_WAIT_POLICY=ACTIVE"` to the process (ZSim supports
+  `processN.env`, `src/pin_cmd.cpp:120-179`) and repeats:
+  - A: Step 1 ×3;
+  - B: OCCARB(θ = 1) ×2 + CoreFirst ×2;
+  - C: 4-core STREAM ×3 (also prints row_conflicts).
+- Run 2: _(pending)_

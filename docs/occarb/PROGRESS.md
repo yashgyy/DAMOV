@@ -560,11 +560,15 @@ Simulator code/config changes are tracked separately in
   - **Stats** (`.ramulator.stats`, OCCARB only): `occarb_{relaxed,neutral,urgent}_cycles_<ch>`,
     `occarb_transitions_<ch>`.
   - Hardware cost as in the paper: two comparisons, a 2-bit mode register, and the `is_dma` bit (Step 3).
-- Delivery: because of the manual-paste problems in Steps 2 and 6, the 12 source edits come as a
-  patch script, `occarb/step7/apply_step7.py`. It checks that every anchor is unique and applies
-  all edits or none; it is idempotent.
-  - Tested on the pre-Step-7 files: 1 run and 2 runs both give files byte-identical to the
-    reference; a corrupted anchor gives an ERROR and no file changes.
+- Delivery: because of the manual-paste problems in Steps 2 and 6, the source edits come as a
+  **unified diff for GNU `patch`**, `occarb/step7/step7.patch` (186 lines, no tabs).
+  - It is applied with `patch -p1 -N -l --dry-run`, then without `--dry-run`. `patch` checks the
+    context lines, `-N` skips a patch that was already applied, and `-l` tolerates whitespace damage
+    from copy-paste.
+  - Tested on the pre-Step-7 files, including a copy with all trailing whitespace stripped: the
+    results are byte-identical to the reference, and a second application is detected and skipped.
+  - (A first version used a Python patch script. **The user's machine cannot use Python**; the
+    script was removed. Rule: deliver only bash / standard Unix tools, never Python.)
 - Unit tests `occarb/step7/test_occarb.cc`, through RamulatorWrapper: **14/14 PASS** in the Claude container.
   - 7a: 12-step level sequence follows Table I incl. hysteresis; 7 transitions; residency sums to cycles.
   - 7b: degenerate thresholds equal the static policies **exactly** (identical completion times):

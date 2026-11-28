@@ -1,0 +1,186 @@
+diff --git a/ramulator/Controller.h b/ramulator/Controller.h
+index 9e3b6ac..00935ae 100755
+--- a/ramulator/Controller.h
++++ b/ramulator/Controller.h
+@@ -180,9 +180,21 @@ public:
+     //   FRFCFS    : FR-FCFS over both queues (row hit, then ready, then oldest)  [paper: NEUTRAL]
+     //   CoreFirst : core request if one can issue; DMA only in slots no core request can use [RELAXED]
+     //   DMAFirst  : DMA request if one can issue (row hits first); else core       [URGENT]
+-    enum class SrcPolicy { FRFCFS, CoreFirst, DMAFirst } src_policy = SrcPolicy::FRFCFS;
++    //   OCCARB    : switches between the three above from the I/O buffer occupancy (Step 7)
++    enum class SrcPolicy { FRFCFS, CoreFirst, DMAFirst, OCCARB } src_policy = SrcPolicy::FRFCFS;
+     long dma_cmds = 0, core_cmds = 0;  // requests started, per source (for checks)
+ 
++    // OCCARB (paper Sec. II-B, Table I): RELAXED (o < lo) -> CoreFirst, NEUTRAL (lo <= o < hi) -> FRFCFS,
++    // URGENT (o >= hi, held until o < lo) -> DMAFirst.
++    enum class OccMode { RELAXED = 0, NEUTRAL = 1, URGENT = 2 } occ_mode = OccMode::RELAXED;
++    double occ_theta_lo = 0.25, occ_theta_hi = 0.75;
++    bool occ_from_dmaq = false;        // fallback signal: own DMA queue fill instead of the NIC sideband
++    int occ_bits = 2;                  // quantisation of the DMA-queue signal
++    int io_level = 0, io_levels = 4;   // last level received over the NIC sideband
++    bool relaxed_strict = false;       // option: in RELAXED/CoreFirst, no DMA to a bank with any queued core request
++    long occ_transitions = 0, occ_mode_cycles[3] = {0, 0, 0}, strict_blocked = 0;
++    ScalarStat occ_relaxed_cycles, occ_neutral_cycles, occ_urgent_cycles, occ_transitions_stat;
++
+     deque<Request> pending;  // read requests that are about to receive data from DRAM
+     deque<Request> pending_write;  // read requests that are about to receive data from DRAM
+     bool write_mode = false;  // whether write requests should be prioritized over reads
+@@ -245,10 +257,29 @@ public:
+         if (configs["src_policy"] == "" || configs["src_policy"] == "FRFCFS") src_policy = SrcPolicy::FRFCFS;
+         else if (configs["src_policy"] == "CoreFirst") src_policy = SrcPolicy::CoreFirst;
+         else if (configs["src_policy"] == "DMAFirst")  src_policy = SrcPolicy::DMAFirst;
++        else if (configs["src_policy"] == "OCCARB")    src_policy = SrcPolicy::OCCARB;
+         else { printf("[RAMULATOR] unknown src_policy '%s'\n", configs["src_policy"].c_str()); assert(false); exit(1); }
+         if (channel->id == 0)
+             printf("[RAMULATOR] Controller queue depth: readq=%u writeq=%u dmaq=%u, src_policy=%s\n",
+                    readq.max, writeq.max, dmaq.max, configs["src_policy"] == "" ? "FRFCFS" : configs["src_policy"].c_str());
++        // OCCARB parameters
++        if (configs["occarb_theta_lo"] != "") occ_theta_lo = stod(configs["occarb_theta_lo"]);
++        if (configs["occarb_theta_hi"] != "") occ_theta_hi = stod(configs["occarb_theta_hi"]);
++        if (configs["occarb_occ_bits"] != "") occ_bits = stoi(configs["occarb_occ_bits"]);
++        occ_from_dmaq = (configs["occarb_source"] == "dmaq");
++        relaxed_strict = (configs["relaxed_strict"] == "on" || configs["relaxed_strict"] == "true");
++        if (occ_theta_lo > occ_theta_hi) { printf("[RAMULATOR] occarb_theta_lo > occarb_theta_hi\n"); assert(false); exit(1); }
++        if (src_policy == SrcPolicy::OCCARB) {
++            string ch = to_string(channel->id);
++            occ_relaxed_cycles.name("occarb_relaxed_cycles_" + ch).desc("Controller cycles in RELAXED mode").precision(0);
++            occ_neutral_cycles.name("occarb_neutral_cycles_" + ch).desc("Controller cycles in NEUTRAL mode").precision(0);
++            occ_urgent_cycles.name("occarb_urgent_cycles_" + ch).desc("Controller cycles in URGENT mode").precision(0);
++            occ_transitions_stat.name("occarb_transitions_" + ch).desc("OCCARB mode changes").precision(0);
++            if (channel->id == 0)
++                printf("[RAMULATOR] OCCARB: theta_lo=%.4f theta_hi=%.4f source=%s occ_bits(dmaq)=%d\n",
++                       occ_theta_lo, occ_theta_hi, occ_from_dmaq ? "dmaq" : "nic", occ_bits);
++        }
++        if (relaxed_strict && channel->id == 0) printf("[RAMULATOR] relaxed_strict=on\n");
+         if (with_drampower) {
+           act_energy
+               .name("act_energy_" + to_string(channel->id))
+@@ -613,6 +644,7 @@ public:
+     {
+         clk++;
+         (*req_queue_length_sum) += readq.size() + writeq.size() + dmaq.size() + pending.size();
++        if (src_policy == SrcPolicy::OCCARB) occ_update();  // OCCARB: mode for this cycle
+         (*read_req_queue_length_sum) += readq.size() + pending.size();
+         (*write_req_queue_length_sum) += writeq.size();
+ 
+@@ -743,14 +775,57 @@ public:
+         queue->q.erase(req);
+     }
+ 
++    // OCCARB: occupancy signal o in [0,1), already quantised (the paper's 2-bit level / levels).
++    void set_io_level(int level, int levels) { io_level = level; io_levels = levels; }
++    double occupancy()
++    {
++        if (!occ_from_dmaq) return (double)io_level / io_levels;
++        int levels = 1 << occ_bits;
++        int l = (int)((double)dmaq.size() * levels / dmaq.max);
++        return (double)min(max(l, 0), levels - 1) / levels;
++    }
++    // OCCARB: two threshold comparisons + hysteresis (Fig. 1b). Called once per controller cycle.
++    void occ_update()
++    {
++        double o = occupancy();
++        OccMode m = occ_mode;
++        if (m == OccMode::URGENT) { if (o < occ_theta_lo) m = OccMode::RELAXED; }
++        else if (o >= occ_theta_hi) m = OccMode::URGENT;
++        else if (o >= occ_theta_lo) m = OccMode::NEUTRAL;
++        else m = OccMode::RELAXED;
++        if (m != occ_mode) { occ_transitions++; ++occ_transitions_stat; occ_mode = m; }
++        occ_mode_cycles[int(m)]++;
++        if (m == OccMode::RELAXED) ++occ_relaxed_cycles;
++        else if (m == OccMode::NEUTRAL) ++occ_neutral_cycles;
++        else ++occ_urgent_cycles;
++    }
++    // OCCARB option relaxed_strict: is any core request (read or write queue) waiting for this bank?
++    bool bank_has_core_req(list<Request>::iterator dma)
++    {
++        int lb = int(T::Level::Bank);
++        auto same_bank = [&](const Request& r) {
++            for (int l = 0; l <= lb; l++) if (r.addr_vec[l] != dma->addr_vec[l]) return false;
++            return true; };
++        for (auto& r : readq.q)  if (same_bank(r)) return true;
++        for (auto& r : writeq.q) if (same_bank(r)) return true;
++        return false;
++    }
++
+     // OCCARB: true if the DMA candidate should be served instead of the core candidate.
+     bool pick_dma(list<Request>::iterator core, list<Request>::iterator core_end, list<Request>::iterator dma)
+     {
+         if (dma == dmaq.q.end()) return false;
+         if (core == core_end) return true;
+         bool cr = is_ready(core), dr = is_ready(dma);
+-        switch (src_policy) {
+-            case SrcPolicy::CoreFirst: return !cr && dr;
++        SrcPolicy p = src_policy;
++        if (p == SrcPolicy::OCCARB)
++            p = occ_mode == OccMode::RELAXED ? SrcPolicy::CoreFirst :
++                occ_mode == OccMode::NEUTRAL ? SrcPolicy::FRFCFS : SrcPolicy::DMAFirst;
++        switch (p) {
++            case SrcPolicy::CoreFirst:
++                if (!(!cr && dr)) return false;
++                if (relaxed_strict && bank_has_core_req(dma)) { strict_blocked++; return false; }
++                return true;
+             case SrcPolicy::DMAFirst:  return dr || !cr;
+             case SrcPolicy::FRFCFS:
+             default: {
+diff --git a/ramulator/Memory.h b/ramulator/Memory.h
+index 6930174..530e6ad 100755
+--- a/ramulator/Memory.h
++++ b/ramulator/Memory.h
+@@ -39,6 +39,7 @@ public:
+     virtual void record_core(int coreid) = 0;
+     virtual void set_address_recorder () = 0;
+     virtual void set_application_name(string) = 0;
++    virtual void set_io_level(int level, int levels) {}  // OCCARB: NIC occupancy sideband (no-op by default)
+ };
+ 
+ template <class T, template<typename> class Controller = Controller >
+@@ -463,6 +464,9 @@ public:
+         return false;
+     }
+ 
++    // OCCARB: forward the NIC occupancy level to every controller
++    void set_io_level(int level, int levels) { for (auto ctrl : ctrls) ctrl->set_io_level(level, levels); }
++
+     int pending_requests()
+     {
+         int reqs = 0;
+diff --git a/ramulator/RamulatorWrapper.cc b/ramulator/RamulatorWrapper.cc
+index c1f9948..29ca14e 100755
+--- a/ramulator/RamulatorWrapper.cc
++++ b/ramulator/RamulatorWrapper.cc
+@@ -64,6 +64,10 @@ void RamulatorWrapper::finish() {
+   mem->finish();
+ }
+ 
++void RamulatorWrapper::set_io_level(int level, int levels) {  // OCCARB
++    mem->set_io_level(level, levels);
++}
++
+ double RamulatorWrapper::get_tCK() {
+     return tCK;
+ }
+diff --git a/ramulator/RamulatorWrapper.h b/ramulator/RamulatorWrapper.h
+index c68a177..729b7d2 100755
+--- a/ramulator/RamulatorWrapper.h
++++ b/ramulator/RamulatorWrapper.h
+@@ -25,6 +25,7 @@ public:
+     bool send(Request req);
+     void finish();
+     double get_tCK();
++    void set_io_level(int level, int levels);  // OCCARB: NIC occupancy sideband
+ };
+ 
+ } /*namespace ramulator*/
+diff --git a/src/ramulator_mem_ctrl.cpp b/src/ramulator_mem_ctrl.cpp
+index b822922..4864fc0 100755
+--- a/src/ramulator_mem_ctrl.cpp
++++ b/src/ramulator_mem_ctrl.cpp
+@@ -244,6 +244,7 @@ void Ramulator::setNic(const ramulator::NicParams& p, uint64_t rxBase, uint64_t
+ void Ramulator::nicTick() {
+   nic->tick();
+   nicLevelCycles[nic->level()]++;
++  wrapper->set_io_level(nic->level(), 1 << nic->p.occ_bits);  // OCCARB: occupancy sideband to the controller
+ 
+   // RX: NIC buffer -> DRAM (cache-bypassing DMA write, sequential ring)
+   if (nic->want_rx_write() && nicRxInflightReqs < nicMaxInflight) {

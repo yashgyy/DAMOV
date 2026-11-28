@@ -54,7 +54,7 @@ Legend: **[NEW]** new file · **[MOD]** modified existing file · **[DEL]** dele
 | `simulator/ramulator/Memory.h` | **MOD** | 7 | `MemoryBase::set_io_level` (virtual, default no-op) + `Memory<T>` forwarder |
 | `simulator/ramulator/RamulatorWrapper.{h,cc}` | **MOD** | 7 | `set_io_level()` |
 | `simulator/src/ramulator_mem_ctrl.cpp` | **MOD** | 7 | `nicTick()` sends the level each cycle |
-| `simulator/occarb/step7/apply_step7.py` | NEW | 7 | All-or-nothing patch script for the 12 edits above |
+| `simulator/occarb/step7/step7.patch` | NEW | 7 | Unified diff of the 5 source files (apply with GNU `patch`) |
 | `simulator/occarb/step7/test_occarb.cc` | NEW | 7 | OCCARB unit tests |
 | `simulator/occarb/step7/run_check.sh`, `stress.sh` | NEW | 7 | ZSim checks / 4-core stress experiment |
 | `simulator/occarb/lib.sh` | MOD | 7 | `ram_set DIR KEY VALUE` |

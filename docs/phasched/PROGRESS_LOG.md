@@ -382,6 +382,11 @@ Mean round over ≥ 3 runs, normalised to FR-FCFS mean (min–max in M cycles):
 - Same system/schedulers/K/batch as CNN; only FC hidden 1024 → 2048 (≈ 17 M params, ≈ 65 MB). Motivation fixed before
   running: more write-heavy training (larger FC gradients). Agreed rule: report CNN-L as it comes out; no further
   variants. Configs fl_cnnL_<sched>_10g (command adds `fc=2048`).
+- Results (16,875,402 params, 64.4 MB; round M cyc): FCFS 2208.43 (flsum printed 2147483647 = awk %d overflow; fixed
+  to %.0f), FRFCFS 1890.23, Cap 1906.48, BLISS 1901.61, PhaSched_final 1891.44 → normalised 1.1683 / 1 / 1.0086 /
+  1.0060 / **1.0006 (PhaSched 0.06 % slower, within noise)**. TRAIN read latency 78.0 vs 77.7.
+- Per the agreement, CNN-L is not used (no bigger gain); paper keeps the 32 MB CNN. Note: CNN-L is a data point where
+  PhaSched is (insignificantly) slower than FR-FCFS, relevant to the "never slower" wording.
 
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 

@@ -11,5 +11,5 @@ for s in $names; do
     $1==2 { c+=$3-$2; r+=$5; l+=$6; t+=$11; p50=$7; p99=$8 }
     END {
       while ((getline line < dma) > 0) { split(line, a, ","); if (a[1]=="W") w=a[4]-a[3]; if (a[1]=="R") rr=a[4]-a[3] }
-      printf "%-20s %12d %8.1f %6d %6d %9d %11d %11d %12d\n", s, c, (r?l/r:0), p50, p99, t, w, rr, w+c+rr }' "$f.phases.csv"
+      printf "%-20s %12.0f %8.1f %6d %6d %9d %11.0f %11.0f %12.0f\n", s, c, (r?l/r:0), p50, p99, t, w, rr, w+c+rr }' "$f.phases.csv"
 done

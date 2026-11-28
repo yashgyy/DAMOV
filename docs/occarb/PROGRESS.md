@@ -39,7 +39,7 @@ Simulator code/config changes are tracked separately in
 | 4 | NIC model as a standalone class + unit tests | ✅ done |
 | 5a | Memory clock fidelity: optional CPU/DRAM clock divider | ✅ done |
 | 5b | Integrate NIC injector at the ZSim–Ramulator boundary | ✅ done |
-| 6 | Static baselines: Core-first, DMA-first | ☐ |
+| 6 | Static baselines: Core-first, DMA-first | ⏳ in progress |
 | 7 | OCCARB scheduler (3 modes + hysteresis) | ☐ |
 | 8 | BLISS baseline | ☐ |
 | 9 | Workloads: ResNet-18 / MobileNetV2 training ROI | ☐ |
@@ -455,3 +455,43 @@ Simulator code/config changes are tracked separately in
     FR-FCFS, DMA competes equally even though it could wait.
   - Expectation for Step 7: OCCARB's slowdown approaches Core-first's while loss stays 0, provided
     S is large enough for the deferral.
+
+
+### Step 6: Source arbitration policies (FR-FCFS / Core-first / DMA-first)
+- Status: in progress
+- Design finding: Ramulator serves **one** queue per cycle (`readq`, or `writeq` in write-drain
+  mode, or `otherq` for refresh). If DMA writes were mixed into `writeq`, they would trigger write
+  drain (writeq ≥ 80%) and block core reads regardless of any priority inside `get_head`.
+  - So, as the paper states ("separate logical queues"), DMA requests now go to their own
+    **`dmaq`** (reads and writes, depth = queue_size = 64).
+  - Each cycle, the head of the core queue (chosen exactly as before) is compared with the head of
+    `dmaq` (chosen with the same FR-FCFS-PriorHit `get_head`) by `pick_dma()`.
+  - Refresh keeps absolute precedence. Write-drain mode is driven by core writes only.
+- Policies (`src_policy` in the Ramulator cfg; default FRFCFS). They map 1:1 onto the paper's modes,
+  so Step 7 only has to switch between them:
+
+  | src_policy | rule in `pick_dma` | paper mode |
+  |---|---|---|
+  | FRFCFS | row hit, then ready, then oldest, across both queues | NEUTRAL |
+  | CoreFirst | DMA only if the core candidate cannot issue this cycle | RELAXED |
+  | DMAFirst | DMA if it can issue (head is a row hit if any is ready), else core | URGENT |
+- Unit tests `occarb/step6/test_sched.cc`. They drive Ramulator through `RamulatorWrapper`, the same
+  interface ZSim uses, with hand-built mixes; latency is in Ramulator ticks.
+  - 6a: all requests complete; no key == FRFCFS (identical completion times).
+  - 6b: CoreFirst puts core first (12/12 of the first completions).
+  - 6c: DMAFirst puts DMA first.
+  - 6d: FRFCFS is age-based across queues (older DMA first); CoreFirst overtakes older DMA.
+  - 6e: DMA *writes* vs core reads: no DMA-triggered write drain under CoreFirst.
+  - 6f: core-only and DMA-only traffic are policy-independent (identical completion times).
+- Pre-check (Claude container): `libramulator.so` builds; **14/14 unit tests PASS**. Highlights:
+  - Simultaneous arrival: core 668 / DMA 1988 ticks under CoreFirst, mirrored under DMAFirst.
+  - Older DMA: FR-FCFS core latency 1968 vs CoreFirst 704.
+  - DMA writes vs core reads (CoreFirst): core 668 vs DMA 2099.
+- ZSim checks (`occarb/step6/run_check.sh`):
+  - 6g: regressions (Step 4; Step 1 within 0.5% of 26,616,590).
+  - 6h: policy shown in the log.
+  - 6i: NIC off gives identical cycles for all policies.
+  - 6j: RX+TX 25 GbE ordering S(CoreFirst) ≤ S(FRFCFS) ≤ S(DMAFirst), and DMA latency in the reverse order.
+- Note: Step 5b's FR-FCFS numbers (S = 1.4415 at 25 GbE) were measured with DMA mixed into
+  readq/writeq. They are superseded by 6j's FRFCFS value.
+- Run 1: _(pending)_

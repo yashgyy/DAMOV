@@ -30,3 +30,7 @@ rstat(){ grep -E "(^|[[:space:].])$3[[:space:]]" "$1/$2.ramulator.stats" 2>/dev/
 zstat(){ grep -E "^\s+$3:" "$1/$2.zsim.out" 2>/dev/null | head -1 | awk '{print $2}'; }
 # nic_set CFG KEY VALUE -> set a key inside the cfg (keys in the nic block are unique in the template)
 nic_set(){ sed -i -E "s/^(\s*$2 = )[^;]*;/\1$3;/" "$1"; }
+# ram_policy DIR POLICY -> give DIR its own ramulator-configs/DDR4-occarb.cfg with "src_policy = POLICY"
+ram_policy(){ mkdir -p "$1/ramulator-configs"
+  grep -v "src_policy" "$SIM/ramulator-configs/DDR4-occarb.cfg" > "$1/ramulator-configs/DDR4-occarb.cfg"
+  echo " src_policy = $2" >> "$1/ramulator-configs/DDR4-occarb.cfg"; }

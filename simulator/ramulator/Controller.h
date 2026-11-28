@@ -174,6 +174,14 @@ public:
     Queue readq;  // queue for read requests
     Queue writeq;  // queue for write requests
     Queue otherq;  // queue for all "other" requests (e.g., refresh)
+    Queue dmaq;    // OCCARB: separate logical queue for NIC DMA requests (reads and writes)
+
+    // OCCARB: how the controller arbitrates between the core queue and the DMA queue.
+    //   FRFCFS    : FR-FCFS over both queues (row hit, then ready, then oldest)  [paper: NEUTRAL]
+    //   CoreFirst : core request if one can issue; DMA only in slots no core request can use [RELAXED]
+    //   DMAFirst  : DMA request if one can issue (row hits first); else core       [URGENT]
+    enum class SrcPolicy { FRFCFS, CoreFirst, DMAFirst } src_policy = SrcPolicy::FRFCFS;
+    long dma_cmds = 0, core_cmds = 0;  // requests started, per source (for checks)
 
     deque<Request> pending;  // read requests that are about to receive data from DRAM
     deque<Request> pending_write;  // read requests that are about to receive data from DRAM
@@ -232,8 +240,15 @@ public:
         if (configs["queue_size"] != "") {
             readq.max = writeq.max = stoul(configs["queue_size"]);
         }
+        dmaq.max = readq.max;
+        // OCCARB: source arbitration policy (default FRFCFS)
+        if (configs["src_policy"] == "" || configs["src_policy"] == "FRFCFS") src_policy = SrcPolicy::FRFCFS;
+        else if (configs["src_policy"] == "CoreFirst") src_policy = SrcPolicy::CoreFirst;
+        else if (configs["src_policy"] == "DMAFirst")  src_policy = SrcPolicy::DMAFirst;
+        else { printf("[RAMULATOR] unknown src_policy '%s'\n", configs["src_policy"].c_str()); assert(false); exit(1); }
         if (channel->id == 0)
-            printf("[RAMULATOR] Controller queue depth: readq=%u writeq=%u\n", readq.max, writeq.max);
+            printf("[RAMULATOR] Controller queue depth: readq=%u writeq=%u dmaq=%u, src_policy=%s\n",
+                   readq.max, writeq.max, dmaq.max, configs["src_policy"] == "" ? "FRFCFS" : configs["src_policy"].c_str());
         if (with_drampower) {
           act_energy
               .name("act_energy_" + to_string(channel->id))
@@ -576,7 +591,7 @@ public:
 
     bool enqueue(Request& req)
     {
-        Queue& queue = get_queue(req.type);
+        Queue& queue = req.is_dma ? dmaq : get_queue(req.type);  // OCCARB: DMA -> its own queue
         if (queue.max == queue.size())
             return false;
 
@@ -584,7 +599,7 @@ public:
         queue.q.push_back(req);
         // shortcut for read requests, if a write to same addr exists
         // necessary for coherence
-        if (req.type == Request::Type::READ && find_if(writeq.q.begin(), writeq.q.end(),
+        if (!req.is_dma && req.type == Request::Type::READ && find_if(writeq.q.begin(), writeq.q.end(),
                 [req](Request& wreq){ return req.addr == wreq.addr;}) != writeq.q.end()){
             req.depart = clk + 1;
             pending.push_back(req);
@@ -597,7 +612,7 @@ public:
     void tick()
     {
         clk++;
-        (*req_queue_length_sum) += readq.size() + writeq.size() + pending.size();
+        (*req_queue_length_sum) += readq.size() + writeq.size() + dmaq.size() + pending.size();
         (*read_req_queue_length_sum) += readq.size() + pending.size();
         (*write_req_queue_length_sum) += writeq.size();
 
@@ -646,6 +661,12 @@ public:
             queue = &otherq;  // "other" requests are rare, so we give them precedence over reads/writes
 
         auto req = scheduler->get_head(queue->q);
+        // OCCARB: arbitrate between the core queue's best request and the DMA queue's best request
+        // (refresh/"other" requests keep absolute precedence).
+        if (dmaq.size() && queue != &otherq) {
+            auto dreq = scheduler->get_head(dmaq.q);
+            if (pick_dma(req, queue->q.end(), dreq)) { queue = &dmaq; req = dreq; }
+        }
         if (req == queue->q.end() || !is_ready(req)) {
           if (!no_DRAM_latency) {
             // we couldn't find a command to schedule -- let's try to be speculative
@@ -662,6 +683,7 @@ public:
 
         if (req->is_first_command) {
             req->is_first_command = false;
+            if (req->is_dma) dma_cmds++; else core_cmds++;  // OCCARB
             int coreid = req->coreid;
             if (req->type == Request::Type::READ || req->type == Request::Type::WRITE) {
               channel->update_serving_requests(req->addr_vec.data(), 1, clk);
@@ -719,6 +741,25 @@ public:
 
         // remove request from queue
         queue->q.erase(req);
+    }
+
+    // OCCARB: true if the DMA candidate should be served instead of the core candidate.
+    bool pick_dma(list<Request>::iterator core, list<Request>::iterator core_end, list<Request>::iterator dma)
+    {
+        if (dma == dmaq.q.end()) return false;
+        if (core == core_end) return true;
+        bool cr = is_ready(core), dr = is_ready(dma);
+        switch (src_policy) {
+            case SrcPolicy::CoreFirst: return !cr && dr;
+            case SrcPolicy::DMAFirst:  return dr || !cr;
+            case SrcPolicy::FRFCFS:
+            default: {
+                bool ch = cr && is_row_hit(core), dh = dr && is_row_hit(dma);
+                if (ch != dh) return dh;
+                if (cr != dr) return dr;
+                return dma->arrive < core->arrive;
+            }
+        }
     }
 
     bool is_ready(list<Request>::iterator req)

@@ -467,7 +467,7 @@ public:
     {
         int reqs = 0;
         for (auto ctrl: ctrls)
-            reqs += ctrl->readq.size() + ctrl->writeq.size() + ctrl->otherq.size() + ctrl->pending.size();
+            reqs += ctrl->readq.size() + ctrl->writeq.size() + ctrl->otherq.size() + ctrl->dmaq.size() + ctrl->pending.size();
         return reqs;
     }
 

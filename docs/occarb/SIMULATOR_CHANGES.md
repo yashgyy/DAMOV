@@ -44,8 +44,14 @@ Legend: **[NEW]** new file · **[MOD]** modified existing file · **[DEL]** dele
 | `simulator/occarb/lib.sh` | MOD | 5b | `zstat`, `nic_set` helpers |
 | `simulator/occarb/step5b/run_check.sh` | NEW | 5b | Step 5b checks (b0–b7) |
 
-Existing simulator source files modified so far: `ramulator/Controller.h` (Step 2), `ramulator/Request.h` (Step 3),
-`src/ramulator_mem_ctrl.h`, `src/ramulator_mem_ctrl.cpp`, `src/init.cpp` (Steps 5a, 5b).
+| `simulator/ramulator/Controller.h` | **MOD** | 6 | `dmaq`, `src_policy`, `pick_dma()`, DMA routing in `enqueue`, arbitration in `tick` |
+| `simulator/ramulator/Memory.h` | **MOD** | 6 | `pending_requests()` counts `dmaq` |
+| `simulator/occarb/step6/test_sched.cc` | NEW | 6 | Ramulator-only scheduler unit tests (via RamulatorWrapper) |
+| `simulator/occarb/step6/run_check.sh` | NEW | 6 | Step 6 checks |
+| `simulator/occarb/lib.sh` | MOD | 6 | `ram_policy DIR POLICY` helper |
+
+Existing simulator source files modified so far: `ramulator/Controller.h` (Steps 2, 6), `ramulator/Request.h` (Step 3),
+`ramulator/Memory.h` (Step 6), `src/ramulator_mem_ctrl.h`, `src/ramulator_mem_ctrl.cpp`, `src/init.cpp` (Steps 5a, 5b).
 
 ---
 
@@ -336,4 +342,46 @@ occupancy-level residency.
 ### Undo
 - Revert the edits in the 3 source files.
 - Remove the `nic` block from the template.
+- Run `bash occarb/rebuild.sh`.
+
+---
+
+## Step 6: Source arbitration policies
+
+### Why a separate DMA queue
+Ramulator's controller picks **one** queue per cycle: `readq`, or `writeq` in write-drain mode, or
+`otherq` for refresh. DMA writes placed in `writeq` would trigger write drain at 80% occupancy and
+block all core reads. No priority rule inside one queue could prevent that. The paper also
+specifies separate logical queues.
+
+### Changes (`ramulator/Controller.h`)
+1. Members after `Queue otherq;`:
+   - `Queue dmaq;`
+   - `enum class SrcPolicy { FRFCFS, CoreFirst, DMAFirst } src_policy;`
+   - counters `dma_cmds`, `core_cmds`
+2. Constructor, after the `queue_size` block:
+   - `dmaq.max = readq.max;`
+   - parse `src_policy` (absent/`FRFCFS`/`CoreFirst`/`DMAFirst`; anything else aborts)
+   - the log line now reads `queue depth: readq=.. writeq=.. dmaq=.., src_policy=..`
+3. `enqueue()`:
+   - `req.is_dma` → `dmaq`;
+   - the read-after-write forwarding shortcut is limited to core reads (`!req.is_dma`).
+4. `tick()`:
+   - the `req_queue_length_sum` stat includes `dmaq`;
+   - after `auto req = scheduler->get_head(queue->q);`, if `dmaq` is non-empty and the selected
+     queue is not `otherq`, take the `dmaq` head and let `pick_dma()` decide.
+5. `tick()`: `dma_cmds`/`core_cmds` are counted when a request issues its first command.
+6. New method `pick_dma(core, core_end, dma)` before `is_ready()`.
+
+`ramulator/Memory.h`: `pending_requests()` also counts `dmaq`.
+
+### Simulator behaviour changed?
+- No DMA traffic: `dmaq` stays empty, so the arbitration block never runs and scheduling is identical
+  to before. Checked by unit test 6f (core-only) and ZSim check 6i.
+- With DMA (Step 5b runs): DMA no longer shares `readq`/`writeq` with the cores, so FR-FCFS numbers
+  differ from Step 5b. The Step 6 FRFCFS run is the new baseline.
+
+### Undo
+- Revert the `Controller.h` and `Memory.h` edits.
+- Delete `occarb/step6/`.
 - Run `bash occarb/rebuild.sh`.

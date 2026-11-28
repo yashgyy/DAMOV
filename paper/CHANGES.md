@@ -117,3 +117,4 @@ Starting point: user's `main.tex` (3 pages; saved as `main_user_3p.tex`). Change
 8. Fig. 2: height 3.3 → 3.2 cm, y ticks 0.98/1.00/1.02/1.04, shorter caption.
 9. Conclusion shortened (same two ongoing-work items).
 10. All `%` note comments removed (notes are kept in this file and in PROGRESS_LOG.md).
+11. Results: re-added "Scheduling matters on these clients:" (user request); still 2 pages.

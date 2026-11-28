@@ -64,6 +64,10 @@ void RamulatorWrapper::finish() {
   mem->finish();
 }
 
+void RamulatorWrapper::set_io_level(int level, int levels) {  // OCCARB
+    mem->set_io_level(level, levels);
+}
+
 double RamulatorWrapper::get_tCK() {
     return tCK;
 }

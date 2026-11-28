@@ -39,6 +39,7 @@ public:
     virtual void record_core(int coreid) = 0;
     virtual void set_address_recorder () = 0;
     virtual void set_application_name(string) = 0;
+    virtual void set_io_level(int level, int levels) {}  // OCCARB: NIC occupancy sideband (no-op by default)
 };
 
 template <class T, template<typename> class Controller = Controller >
@@ -462,6 +463,9 @@ public:
         }
         return false;
     }
+
+    // OCCARB: forward the NIC occupancy level to every controller
+    void set_io_level(int level, int levels) { for (auto ctrl : ctrls) ctrl->set_io_level(level, levels); }
 
     int pending_requests()
     {

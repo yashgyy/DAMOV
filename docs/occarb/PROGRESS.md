@@ -40,7 +40,7 @@ Simulator code/config changes are tracked separately in
 | 5a | Memory clock fidelity: optional CPU/DRAM clock divider | ✅ done |
 | 5b | Integrate NIC injector at the ZSim–Ramulator boundary | ✅ done |
 | 6 | Static baselines: Core-first, DMA-first | ✅ done |
-| 7 | OCCARB scheduler (3 modes + hysteresis) | ☐ |
+| 7 | OCCARB scheduler (3 modes + hysteresis) | ⏳ in progress |
 | 8 | BLISS baseline | ☐ |
 | 9 | Workloads: ResNet-18 / MobileNetV2 training ROI | ☐ |
 | 10 | Experiment sweep scripts | ☐ |
@@ -536,3 +536,54 @@ Simulator code/config changes are tracked separately in
     "banks with no ready core request". Our CoreFirst uses "the core head can't issue this cycle".
     A stricter variant (no DMA to a bank with *any* queued core request) would also reduce the
     row-conflict interference from point 3.
+
+### Step 7: OCCARB (occupancy-driven arbitration)
+- Status: in progress
+- Design:
+  - **Sideband.** Each CPU cycle the ZSim-side NIC sends `(level, 2^occBits)` through
+    `RamulatorWrapper::set_io_level()` → `MemoryBase::set_io_level()` (virtual, default no-op, so HMC
+    is unaffected) → each `Controller`. The controller uses o = level / levels, the paper's quantised
+    2-bit level.
+  - **Fallback** (`occarb_source = dmaq`, the paper's "own DMA queue as proxy"):
+    o = floor(dmaq.size · 2^bits / dmaq.max) / 2^bits.
+  - **State machine** `occ_update()`, once per controller cycle, before arbitration:
+    - URGENT → RELAXED only when o < θlo (hysteresis);
+    - otherwise o ≥ θhi → URGENT, o ≥ θlo → NEUTRAL, else RELAXED.
+    - RELAXED can jump straight to URGENT if o jumps.
+  - **Mode → service order** (reuses Step 6): RELAXED = CoreFirst, NEUTRAL = FR-FCFS, URGENT = DMAFirst.
+  - **Option `relaxed_strict = on`:** in RELAXED/CoreFirst, DMA is also held back from any bank with
+    a queued core request (read or write queue). This goes beyond the paper's wording ("banks with
+    no ready core request"); kept as an option, off by default.
+  - **Ramulator cfg keys:** `src_policy = OCCARB`, `occarb_theta_lo`, `occarb_theta_hi` (fractions of
+    the buffer; default 0.25 / 0.75), `occarb_source` (nic|dmaq), `occarb_occ_bits` (dmaq only),
+    `relaxed_strict`.
+  - **Stats** (`.ramulator.stats`, OCCARB only): `occarb_{relaxed,neutral,urgent}_cycles_<ch>`,
+    `occarb_transitions_<ch>`.
+  - Hardware cost as in the paper: two comparisons, a 2-bit mode register, and the `is_dma` bit (Step 3).
+- Delivery: because of the manual-paste problems in Steps 2 and 6, the 12 source edits come as a
+  patch script, `occarb/step7/apply_step7.py`. It checks that every anchor is unique and applies
+  all edits or none; it is idempotent.
+  - Tested on the pre-Step-7 files: 1 run and 2 runs both give files byte-identical to the
+    reference; a corrupted anchor gives an ERROR and no file changes.
+- Unit tests `occarb/step7/test_occarb.cc`, through RamulatorWrapper: **14/14 PASS** in the Claude container.
+  - 7a: 12-step level sequence follows Table I incl. hysteresis; 7 transitions; residency sums to cycles.
+  - 7b: degenerate thresholds equal the static policies **exactly** (identical completion times):
+    lo = hi = 1 → CoreFirst; lo = 0, hi = 1 → FR-FCFS; lo = hi = 0 → DMAFirst.
+  - 7c: dmaq source: a full DMA queue → URGENT (305 cycles), back to RELAXED when drained;
+    nic source with no sideband → stays RELAXED.
+  - 7d: strict == CoreFirst when no bank is shared. In a targeted scenario (bank found by asking
+    Ramulator's own address mapping) strict holds DMA back 747 times; bank-X core writes finish
+    sooner (1093 vs 1135 ticks); no starvation.
+    - The first version of 7d (workload A) could not trigger the strict case at all; it was replaced
+      with the targeted scenario.
+- ZSim checks (`occarb/step7/run_check.sh`, 1 core, 25 GbE RX+TX):
+  - 7e: regressions (Step 4 and Step 6 unit tests; Step 1 within 0.5% of 26,736,521).
+  - 7f: parameters in the log.
+  - 7g: OCCARB(lo = hi = 1) == CoreFirst and OCCARB(lo = hi = 0) == DMAFirst in ZSim (±1e-6). This
+    proves the sideband plumbing and the mode mapping end-to-end.
+  - 7h: residency sums to DRAM cycles; with ρ = 0.5 the sideband drives transitions incl. URGENT.
+  - 7i: S(CoreFirst) ≤ S(OCCARB) ≤ S(DMAFirst); OCCARB has zero loss.
+- Stress experiment (`occarb/step7/stress.sh [REPEATS] [BUF_KB]`, default 3 × 256 KB). Reports
+  findings, not pass/fail: 4 cores STREAM, 25 GbE RX+TX; FR-FCFS / CoreFirst / DMAFirst / OCCARB;
+  S mean [min, max], loss, underruns, URGENT %.
+- Run 1: _(pending)_

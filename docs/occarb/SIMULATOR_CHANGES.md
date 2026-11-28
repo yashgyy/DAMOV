@@ -50,8 +50,18 @@ Legend: **[NEW]** new file · **[MOD]** modified existing file · **[DEL]** dele
 | `simulator/occarb/step6/run_check.sh` | NEW | 6 | Step 6 checks |
 | `simulator/occarb/lib.sh` | MOD | 6 | `ram_policy DIR POLICY` helper |
 
-Existing simulator source files modified so far: `ramulator/Controller.h` (Steps 2, 6), `ramulator/Request.h` (Step 3),
-`ramulator/Memory.h` (Step 6), `src/ramulator_mem_ctrl.h`, `src/ramulator_mem_ctrl.cpp`, `src/init.cpp` (Steps 5a, 5b).
+| `simulator/ramulator/Controller.h` | **MOD** | 7 | OCCARB policy, mode FSM `occ_update()`, `occupancy()`, `set_io_level()`, `bank_has_core_req()`, stats |
+| `simulator/ramulator/Memory.h` | **MOD** | 7 | `MemoryBase::set_io_level` (virtual, default no-op) + `Memory<T>` forwarder |
+| `simulator/ramulator/RamulatorWrapper.{h,cc}` | **MOD** | 7 | `set_io_level()` |
+| `simulator/src/ramulator_mem_ctrl.cpp` | **MOD** | 7 | `nicTick()` sends the level each cycle |
+| `simulator/occarb/step7/apply_step7.py` | NEW | 7 | All-or-nothing patch script for the 12 edits above |
+| `simulator/occarb/step7/test_occarb.cc` | NEW | 7 | OCCARB unit tests |
+| `simulator/occarb/step7/run_check.sh`, `stress.sh` | NEW | 7 | ZSim checks / 4-core stress experiment |
+| `simulator/occarb/lib.sh` | MOD | 7 | `ram_set DIR KEY VALUE` |
+
+Existing simulator source files modified so far: `ramulator/Controller.h` (Steps 2, 6, 7), `ramulator/Request.h` (Step 3),
+`ramulator/Memory.h` (Steps 6, 7), `ramulator/RamulatorWrapper.{h,cc}` (Step 7), `src/ramulator_mem_ctrl.h`,
+`src/ramulator_mem_ctrl.cpp` (Steps 5a, 5b, 7), `src/init.cpp` (Steps 5a, 5b).
 
 ---
 
@@ -384,4 +394,35 @@ specifies separate logical queues.
 ### Undo
 - Revert the `Controller.h` and `Memory.h` edits.
 - Delete `occarb/step6/`.
+- Run `bash occarb/rebuild.sh`.
+
+---
+
+## Step 7: OCCARB
+
+### Changes
+- **`ramulator/Controller.h`**
+  - `SrcPolicy` gains `OCCARB`.
+  - New members: `OccMode { RELAXED, NEUTRAL, URGENT }`, `occ_theta_lo/hi`, `occ_from_dmaq`,
+    `occ_bits`, `io_level/io_levels`, `relaxed_strict`, counters, and 4 `ScalarStat`s.
+  - Constructor: parses `src_policy = OCCARB`, `occarb_theta_lo`, `occarb_theta_hi`,
+    `occarb_occ_bits`, `occarb_source`, `relaxed_strict`; aborts if lo > hi; names the stats and logs
+    `OCCARB: theta_lo=.. theta_hi=.. source=..` (OCCARB only).
+  - `tick()`: `if (src_policy == OCCARB) occ_update();` right after the queue-length stats.
+  - New methods: `set_io_level()`, `occupancy()`, `occ_update()`, `bank_has_core_req()`.
+  - `pick_dma()`: OCCARB maps its mode to CoreFirst/FRFCFS/DMAFirst. CoreFirst also applies
+    `relaxed_strict` when on (counts `strict_blocked`).
+- **`ramulator/Memory.h`**: `MemoryBase` gets `virtual void set_io_level(int, int) {}`;
+  `Memory<T>` forwards it to all controllers.
+- **`ramulator/RamulatorWrapper.{h,cc}`**: `set_io_level(level, levels)` → `mem->set_io_level`.
+- **`src/ramulator_mem_ctrl.cpp`**, `nicTick()`:
+  `wrapper->set_io_level(nic->level(), 1 << nic->p.occ_bits);` after `nic->tick()`.
+
+### Simulator behaviour changed?
+- `src_policy` ≠ OCCARB: no. `occ_update()` is not called; `set_io_level` only stores two ints.
+  `relaxed_strict` is off by default.
+- OCCARB at degenerate thresholds reproduces the static policies exactly (unit test 7b, ZSim check 7g).
+
+### Undo
+- `git checkout` the 5 source files to their Step 6 state.
 - Run `bash occarb/rebuild.sh`.

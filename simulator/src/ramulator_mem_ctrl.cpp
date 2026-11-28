@@ -244,6 +244,7 @@ void Ramulator::setNic(const ramulator::NicParams& p, uint64_t rxBase, uint64_t 
 void Ramulator::nicTick() {
   nic->tick();
   nicLevelCycles[nic->level()]++;
+  wrapper->set_io_level(nic->level(), 1 << nic->p.occ_bits);  // OCCARB: occupancy sideband to the controller
 
   // RX: NIC buffer -> DRAM (cache-bypassing DMA write, sequential ring)
   if (nic->want_rx_write() && nicRxInflightReqs < nicMaxInflight) {

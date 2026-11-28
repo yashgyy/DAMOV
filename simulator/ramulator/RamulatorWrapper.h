@@ -25,6 +25,7 @@ public:
     bool send(Request req);
     void finish();
     double get_tCK();
+    void set_io_level(int level, int levels);  // OCCARB: NIC occupancy sideband
 };
 
 } /*namespace ramulator*/

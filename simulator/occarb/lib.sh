@@ -34,3 +34,5 @@ nic_set(){ sed -i -E "s/^(\s*$2 = )[^;]*;/\1$3;/" "$1"; }
 ram_policy(){ mkdir -p "$1/ramulator-configs"
   grep -v "src_policy" "$SIM/ramulator-configs/DDR4-occarb.cfg" > "$1/ramulator-configs/DDR4-occarb.cfg"
   echo " src_policy = $2" >> "$1/ramulator-configs/DDR4-occarb.cfg"; }
+# ram_set DIR KEY VALUE -> add/replace a key in DIR/ramulator-configs/DDR4-occarb.cfg (call ram_policy first)
+ram_set(){ local f="$1/ramulator-configs/DDR4-occarb.cfg"; grep -v "^ $2 = " "$f" > "$f.tmp"; mv "$f.tmp" "$f"; echo " $2 = $3" >> "$f"; }

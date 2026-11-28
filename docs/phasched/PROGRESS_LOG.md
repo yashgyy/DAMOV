@@ -319,6 +319,18 @@ Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
 - Consequence: the paper no longer states that the clients use synthetic data / one round of K minibatches, or that
   ingress/egress are timed from the DMA injector (Table II still lists K and batch sizes).
 
+### Step 10 — EGRESS cap fix (v2) + phase-agnostic control  (2026-11-28, partial)
+- Code: `phasched_agnostic` knob (Controller.h: member, config, printf, phase_cap, local `phase` override in
+  update_write_mode; Scheduler.h guard condition; HMC stub). Configs DDR4-PhaSched_v2.cfg (egress cap ∞),
+  DDR4-PhaSched_agnostic.cfg (v2 + agnostic = 1).
+- Round (M cyc): LSTM FRFCFS 760.149, final 758.948, v2 758.985, agnostic 759.064;
+  GRU FRFCFS 519.743, final 518.963, v2 519.424, agnostic 519.541. DNN runs missing (config for dnn final absent).
+- Observations: (1) v2 vs final differ by +0.005 % (LSTM) and +0.09 % (GRU) although only the (link-bound) EGRESS cap
+  changed → run-to-run noise of the 4-thread FL runs is ≈ 0.1 %, much larger than ubench's 0.01 %. LSTM/GRU gains
+  (−0.15 %) are therefore at noise level; only MLP (−1.1 %) is clearly significant.
+  (2) agnostic ≈ v2 (LSTM +0.01 %, GRU +0.02 %) → for training, the phase hint adds nothing measurable so far.
+- Next: DNN v2 + agnostic, and repeat runs to measure noise.
+
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
 | # | Paper claim | Status | Evidence |

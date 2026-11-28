@@ -391,6 +391,15 @@ Mean round over ≥ 3 runs, normalised to FR-FCFS mean (min–max in M cycles):
 ### Decision 2026-11-28 (user): CNN in the paper = original 32 MB single run (PhaSched 0.9988); no re-runs.
 Paper edits = the 6 CNN edits (main_2p_cnn.tex, verified 2 pages).
 
+### Submitted  (2026-11-28)
+- User submitted the version DATE_1_7 (2 pages; 4 clients MLP/CNN/LSTM/GRU; single-run numbers; title without
+  "Late Breaking Results:" prefix). Known open items for a revision before the deadline:
+  abstract missing final period; metrics sentence spacing; "-1.1%" minus sign; "tail latency" listed but not shown;
+  lazy-drain sentence's "each pay a turnaround" not supported by counts; single-run noise (~1.1 %) vs claimed gains;
+  turnarounds not reduced (+0.0–2.3 %); P99 mixed (−3.0 % … +1.8 %).
+- Improvement options discussed: repeat-run means, per-phase/turnaround/P99 table (data available), co-runner
+  experiment (phase hint's clearest value), Adam-optimizer variant (more write-heavy training).
+
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
 | # | Paper claim | Status | Evidence |

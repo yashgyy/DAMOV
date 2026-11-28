@@ -624,4 +624,30 @@ Simulator code/config changes are tracked separately in
   - A: Step 1 ×3;
   - B: OCCARB(θ = 1) ×2 + CoreFirst ×2;
   - C: 4-core STREAM ×3 (also prints row_conflicts).
+- Run 2: _(pending)_- Probe 2 results (env `OMP_NUM_THREADS=<cores> OMP_WAIT_POLICY=ACTIVE`):
+  - A: Step 1 = 26,459,523 ×3, repeatable.
+  - B (1 core + NIC 25 GbE): CoreFirst 38,506,528 / 38,934,632; OCCARB(θ = 1) 38,833,419 / 39,013,505.
+    **Still ~1.1% run-to-run.**
+  - C (4 cores, no NIC): 26,146,815 / 22,242,802 / 22,723,863, with row_conflicts
+    511,128 / 280,681 / 292,467. **Still ~15%.**
+  - **The OpenMP-pool hypothesis is rejected.** The runs that vary all have several sequential streams
+    sharing banks (4 STREAM threads, or core + DMA streams). Their relative alignment sets the
+    row-conflict rate, so tiny timing perturbations are amplified into 1–15% swings.
+  - Ramulator uses the `RoBaRaCoCh` mapping (`Memory.h:96`): consecutive lines fill a row, then
+    move to the next bank. There is no XOR bank hashing, which real controllers use to break
+    exactly this kind of stream alignment.
+- Decisions:
+  1. Keep `env = "OMP_NUM_THREADS=<cores> OMP_WAIT_POLICY=ACTIVE"` in `template_occarb.cfg` and the
+     Step 1 smoke config (correct thread count, avoids host oversubscription; Step 1 repeatable 3/3).
+     **New Step 1 reference: 26,459,523.**
+  2. Runs with DMA, and 4-core runs, are treated as noisy measurements. At the ZSim level, 7g/7i use a
+     2% band (measured 1-core noise ~1.1%). Exact equivalence of OCCARB with the static policies is
+     proven where the simulation is deterministic, in the Ramulator unit tests (7b).
+  3. The 4-core stress test (3 repeats, min/max) measures effect size vs noise. If policy differences
+     (especially loss) do not clearly exceed the spread, try longer runs and/or XOR bank hashing
+     before the Step 10 sweeps. Paper impact: report mean ± range (already planned).
+- Edits (applied by the user with `sed`, no Python):
+  - template `env` line;
+  - smoke.cfg `env` line;
+  - step7/run_check.sh: REF1 → 26,459,523, 7g/7i tolerance 2%.
 - Run 2: _(pending)_

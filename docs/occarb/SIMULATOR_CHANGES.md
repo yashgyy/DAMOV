@@ -426,3 +426,11 @@ specifies separate logical queues.
 ### Undo
 - `git checkout` the 5 source files to their Step 6 state.
 - Run `bash occarb/rebuild.sh`.
+
+### Step 7 follow-up: OpenMP environment and noise tolerance
+- **[MOD] `templates/template_occarb.cfg`**: `process0` gains
+  `env = "OMP_NUM_THREADS=NUMBER_CORES OMP_WAIT_POLICY=ACTIVE";` (ZSim `processN.env`, `src/pin_cmd.cpp:120-179`).
+- **[MOD] `occarb/step1/smoke.cfg`**: the same, with 1 thread. The Step 1 reference becomes 26,459,523.
+- **[MOD] `occarb/step7/run_check.sh`**: REF1; 7g/7i compare within a 2% run-to-run noise band.
+- Reason: runs with several sequential streams sharing DRAM banks (multi-core, or core + DMA) are
+  non-repeatable by 1–15% (row-conflict sensitivity). See PROGRESS.md Step 7.

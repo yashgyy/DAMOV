@@ -339,6 +339,11 @@ Round time normalised to FR-FCFS (round = DMA-in + TRAIN + DMA-out):
   the 136× starvation bound (ubench, 1000 G). Paper numbers must be treated as provisional until repeated runs
   (mean ± spread) or lower-noise runs (threads=1) are done.
 
+### Step 11 — Repeat runs  (2026-11-28, started)
+- Decision (user): run repeats; if PhaSched's mean gain holds, update the paper's results with means; otherwise the
+  user intends to keep the current text (assistant advised that single-run gains within noise should not be claimed).
+- 24 runs: {FRFCFS, FRFCFS_Cap, BLISS, PhaSched_v2} × {dnn, lstm, gru} × {r2, r3}; summary script flmean.sh.
+
 ## 5b. Paper claims vs evidence (status 2026-11-25, ubench only — real FL workloads not yet run)
 
 | # | Paper claim | Status | Evidence |

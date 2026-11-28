@@ -1258,3 +1258,11 @@ Summary:
 cd /DAMOV/phasched/results
 for m in logreg nb dnn lstm gru; do echo "== $m"; ../scripts/flsum.sh fl_$m _10g "FCFS FRFCFS FRFCFS_Cap BLISS PhaSched_final"; done
 ```
+
+---
+
+## Step 11 — Repeat runs (statistical support)
+Run-to-run noise of the 4-thread FL runs is up to ~1.1 % (identical-config DNN repeat), so every result is averaged
+over ≥ 3 runs. New repeats `_r2`, `_r3` for FRFCFS, FRFCFS_Cap, BLISS, PhaSched_v2 × MLP/LSTM/GRU (24 runs);
+existing `_rep` runs count as extra repeats. Summary: `phasched/scripts/flmean.sh <dnn|lstm|gru>` → runs, mean/min/max
+round, mean TRAIN read latency, mean normalised to FR-FCFS mean.
